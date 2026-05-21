@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Hacker Extension",
+  "version": "0.0.1",
+  "description": "外链管理神器，快速填充预设文本和外链信息。",
+  "action": {
+    "default_title": "Hacker Extension"
+  },
+  "permissions": [
+    "storage",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "https://api.notion.com/*"
+  ],
+  "options_page": "options.html",
+  "background": {
+    "service_worker": "service-worker-loader.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "js": [
+        "assets/main.tsx-loader-pZSHvq7x.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ],
+      "run_at": "document_idle",
+      "css": [
+        "assets/main-CkIJLJo3.css"
+      ]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "resources": [
+        "assets/jsx-runtime-D0XvMYhy.js",
+        "assets/storage-CNSAXF1f.js",
+        "assets/main.tsx-Dkwtwy-8.js"
+      ],
+      "use_dynamic_url": false
+    }
+  ]
+}

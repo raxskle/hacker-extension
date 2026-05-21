@@ -1,0 +1,184 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #f2f6fb;
+  color: #142033;
+}
+
+.options-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.options-card {
+  width: min(920px, 100%);
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 20px;
+  border: 1px solid #d8e0ea;
+  box-shadow: 0 14px 38px rgba(26, 39, 57, 0.08);
+}
+
+h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.hint {
+  margin-top: 8px;
+  margin-bottom: 18px;
+  color: #55657a;
+}
+
+.error-message {
+  margin-bottom: 12px;
+  color: #8f2d2d;
+}
+
+.group-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.group-input-wrap {
+  display: flex;
+  gap: 10px;
+  flex: 1 1 520px;
+}
+
+.tab-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.tab {
+  border-radius: 999px;
+}
+
+.tab.active {
+  background: #1e4da0;
+  border-color: #1e4da0;
+  color: #fff;
+}
+
+.active-group-meta {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 16px;
+  color: #55657a;
+  font-size: 14px;
+}
+
+.list {
+  display: grid;
+  gap: 12px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.kv-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+input,
+textarea {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid #bcc9d8;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+button {
+  border: 1px solid #b6c6da;
+  background: #f6f9ff;
+  color: #1f3550;
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #e9f1ff;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: #1e4da0;
+  border-color: #1e4da0;
+  color: #fff;
+}
+
+button.primary:hover {
+  background: #214690;
+}
+
+button.danger {
+  background: #fff4f4;
+  border-color: #ecc8c8;
+  color: #8f2d2d;
+}
+
+.actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 10px;
+}
+
+.notice {
+  min-height: 20px;
+  margin-top: 10px;
+  color: #2c6c2a;
+}
+
+.empty-state {
+  padding: 14px 12px;
+  border: 1px dashed #c7d3e1;
+  border-radius: 10px;
+  color: #55657a;
+  background: #f9fbff;
+}
+
+.hidden-domains-card {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid #d8e0ea;
+  border-radius: 10px;
+  background: #f8fbff;
+}
+
+.hidden-domains-card h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.hidden-domains-card .hint {
+  margin: 0 0 10px;
+}

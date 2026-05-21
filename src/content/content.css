@@ -1,0 +1,538 @@
+/* Style isolation - reset everything for plugin children */
+#__quick_preset_filler_root__,
+#__quick_preset_filler_root__ > * {
+  all: initial;
+  box-sizing: border-box;
+}
+
+#__quick_preset_filler_root__,
+#__quick_preset_filler_root__ > * {
+  font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  line-height: 1.5;
+  color: #ecf4ff;
+}
+
+#__quick_preset_filler_root__ > * {
+  font-size: 14px;
+}
+
+.qpf-panel {
+  position: fixed !important;
+  width: 480px !important;
+  max-height: min(680px, 86vh) !important;
+  z-index: 2147483647 !important;
+  border-radius: 14px !important;
+  border: 1px solid #20303f !important;
+  background: #09131c !important;
+  color: #ecf4ff !important;
+  font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif !important;
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.qpf-panel-collapsed {
+  max-height: none !important;
+  width: auto !important;
+  min-width: 200px !important;
+}
+
+.qpf-panel-collapsed .qpf-body {
+  display: none !important;
+}
+
+.qpf-panel-collapsed .qpf-notice {
+  display: none !important;
+}
+
+.qpf-panel-collapsed .qpf-error {
+  display: none !important;
+}
+
+.qpf-header {
+  cursor: grab !important;
+  user-select: none !important;
+  padding: 12px 14px !important;
+  background: linear-gradient(135deg, #13324e, #102431) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+}
+
+.qpf-header:active {
+  cursor: grabbing !important;
+}
+
+.qpf-title {
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.4px !important;
+}
+
+.qpf-header-actions {
+  display: flex !important;
+  gap: 8px !important;
+  align-items: center !important;
+}
+
+.qpf-collapse-btn {
+  border: none !important;
+  background: transparent !important;
+  color: #8dd7ff !important;
+  font-size: 12px !important;
+  cursor: pointer !important;
+  padding: 2px 6px !important;
+  font-family: inherit !important;
+  line-height: 1 !important;
+}
+
+.qpf-collapse-btn:hover {
+  color: #b8e4ff !important;
+}
+
+.qpf-inline-actions {
+  display: flex !important;
+  gap: 8px !important;
+  align-items: center !important;
+}
+
+.qpf-link {
+  border: none !important;
+  background: transparent !important;
+  color: #8dd7ff !important;
+  font-size: 14px !important;
+  cursor: pointer !important;
+  padding: 2px 4px !important;
+  font-family: inherit !important;
+}
+
+.qpf-link:disabled {
+  color: #5d88a6 !important;
+  cursor: default !important;
+}
+
+.qpf-error {
+  margin: 10px 10px 0 !important;
+  border: 1px solid #7c2f2f !important;
+  background: #3a1717 !important;
+  color: #ffd8d8 !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+}
+
+.qpf-error-inline {
+  margin: 0 !important;
+}
+
+.qpf-body {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  padding: 12px !important;
+  overflow: auto !important;
+}
+
+.qpf-section {
+  border: 1px solid #1f3b4e !important;
+  background: #0f1f2b !important;
+  border-radius: 12px !important;
+  padding: 12px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+
+.qpf-top-tabs {
+  gap: 12px !important;
+}
+
+.qpf-tab-settings {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  padding-top: 4px !important;
+}
+
+.qpf-tab-settings-footer {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-wrap: wrap !important;
+}
+
+.qpf-section-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+}
+
+.qpf-section-title {
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  color: #dff3ff !important;
+}
+
+.qpf-record-count {
+  font-weight: 400 !important;
+  color: #8fb4cf !important;
+  font-size: 13px !important;
+}
+
+.qpf-golden-text {
+  color: #ffd700 !important;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.5) !important;
+}
+
+.qpf-text-green {
+  color: #4ade80 !important;
+}
+
+.qpf-margin-top {
+  margin-top: 8px !important;
+}
+
+.qpf-section-subtitle {
+  margin-top: 4px !important;
+  font-size: 14px !important;
+  color: #8fb4cf !important;
+}
+
+.qpf-tab-list {
+  display: flex !important;
+  gap: 10px !important;
+  flex-wrap: wrap !important;
+}
+
+.qpf-tab {
+  border: 1px solid #2a4b63 !important;
+  background: #122635 !important;
+  color: #cfeaff !important;
+  border-radius: 999px !important;
+  padding: 8px 14px !important;
+  font-size: 14px !important;
+  cursor: pointer !important;
+  font-family: inherit !important;
+}
+
+.qpf-tab:hover {
+  background: #1a354a !important;
+}
+
+.qpf-tab.is-active {
+  background: #2a72a8 !important;
+  border-color: #2a72a8 !important;
+  color: #f5fbff !important;
+}
+
+.qpf-domain-create {
+  display: grid !important;
+  grid-template-columns: 1fr auto !important;
+  gap: 10px !important;
+  align-items: center !important;
+}
+
+.qpf-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  overflow: auto !important;
+}
+
+.qpf-item {
+  border: 1px solid #1f3b4e !important;
+  background: #122635 !important;
+  color: #eaf7ff !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  text-align: left !important;
+  cursor: pointer !important;
+  font-size: 14px !important;
+  line-height: 1.4 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+  font-family: inherit !important;
+}
+
+.qpf-item-key {
+  font-size: 14px !important;
+  color: #94c7e8 !important;
+  font-weight: 600 !important;
+}
+
+.qpf-item-value {
+  font-size: 14px !important;
+  color: #eef8ff !important;
+  line-height: 1.4 !important;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+}
+
+.qpf-item:hover {
+  background: #19364d !important;
+}
+
+.qpf-item:active {
+  transform: translateY(1px) !important;
+}
+
+.qpf-edit-wrap {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 14px !important;
+  padding: 12px !important;
+  overflow: auto !important;
+}
+
+.qpf-edit-wrap-inline {
+  padding: 0 !important;
+}
+
+.qpf-edit-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+
+.qpf-edit-row {
+  display: grid !important;
+  grid-template-columns: 1fr auto !important;
+  gap: 10px !important;
+  align-items: start !important;
+}
+
+.qpf-edit-fields {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+}
+
+.qpf-key-input,
+.qpf-textarea,
+.qpf-select {
+  border: 1px solid #28475e !important;
+  background: #102130 !important;
+  color: #eaf7ff !important;
+  border-radius: 8px !important;
+  padding: 8px 10px !important;
+  font-size: 14px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  font-family: inherit !important;
+}
+
+.qpf-textarea {
+  resize: vertical !important;
+  min-height: 52px !important;
+}
+
+.qpf-mini-btn {
+  border: 1px solid #2a4b63 !important;
+  background: #173247 !important;
+  color: #d9efff !important;
+  border-radius: 8px !important;
+  padding: 8px 12px !important;
+  font-size: 14px !important;
+  cursor: pointer !important;
+  font-family: inherit !important;
+}
+
+.qpf-mini-btn:hover {
+  background: #1d3f58 !important;
+}
+
+.qpf-danger-btn {
+  border-color: #7c2f2f !important;
+  background: #3a1717 !important;
+  color: #ffd8d8 !important;
+}
+
+.qpf-danger-btn:hover {
+  background: #4a1d1d !important;
+}
+
+.qpf-cancel-btn {
+  border-color: #3d4f5f !important;
+  background: #1a2a38 !important;
+  color: #8fa4b8 !important;
+}
+
+.qpf-cancel-btn:hover {
+  background: #243545 !important;
+}
+
+.qpf-mini-btn:disabled {
+  opacity: 0.7 !important;
+  cursor: default !important;
+}
+
+.qpf-edit-actions,
+.qpf-record-actions {
+  display: flex !important;
+  justify-content: flex-start !important;
+}
+
+.qpf-notion-form,
+.qpf-record-form {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+
+.qpf-fields-row {
+  display: flex !important;
+  gap: 10px !important;
+  width: 100% !important;
+}
+
+.qpf-field {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+}
+
+.qpf-field-compact {
+  flex: 1 !important;
+  min-width: 0 !important;
+}
+
+.qpf-field-compact .qpf-field-label {
+  font-size: 12px !important;
+}
+
+.qpf-field-compact .qpf-key-input {
+  padding: 5px 8px !important;
+  font-size: 13px !important;
+}
+
+.qpf-field-label {
+  font-size: 14px !important;
+  color: #9bc3df !important;
+}
+
+.qpf-state,
+.qpf-empty,
+.qpf-record-readonly,
+.qpf-page-context {
+  border: 1px dashed #2a4b63 !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  font-size: 14px !important;
+  color: #93bad6 !important;
+}
+
+.qpf-page-context {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+}
+
+.qpf-page-url,
+.qpf-page-host,
+.qpf-record-value,
+.qpf-record-readonly {
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+  line-height: 1.5 !important;
+}
+
+.qpf-record-wrap,
+.qpf-record-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+
+.qpf-record-row {
+  border: 1px solid #1f3b4e !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  background: #102130 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+}
+
+.qpf-record-label {
+  font-size: 14px !important;
+  color: #94c7e8 !important;
+  font-weight: 600 !important;
+}
+
+.qpf-record-value {
+  font-size: 14px !important;
+  color: #eef8ff !important;
+}
+
+.qpf-checkbox-field {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  font-size: 14px !important;
+  color: #eaf7ff !important;
+}
+
+.qpf-date-grid {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 10px !important;
+}
+
+.qpf-key-link-box {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  padding: 12px !important;
+  border: 1px solid #1f3b4e !important;
+  border-radius: 12px !important;
+  background: #0d1c28 !important;
+}
+
+.qpf-key-status {
+  border: 1px dashed #2a4b63 !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  font-size: 14px !important;
+  color: #9ec6e3 !important;
+}
+
+.qpf-notion-summary {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  font-size: 14px !important;
+  color: #9ec6e3 !important;
+}
+
+.qpf-notion-title {
+  font-weight: 700 !important;
+  color: #dff3ff !important;
+}
+
+.qpf-notion-count {
+  white-space: nowrap !important;
+}
+
+.qpf-notice {
+  min-height: 22px !important;
+  padding: 0 12px 12px !important;
+  font-size: 14px !important;
+  color: #86c8f1 !important;
+}
+
+/* Ensure select dropdowns are also styled */
+select.qpf-key-input {
+  appearance: auto !important;
+  -webkit-appearance: auto !important;
+}
