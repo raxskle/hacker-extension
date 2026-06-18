@@ -7,13 +7,20 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import {
+  getCaptureRule,
+  getCaptureRuntimeState,
   getNotionCache,
   getNotionConfig,
+  getNotionDetailCollapsed,
   getNotionSyncState,
   getPanelPosition,
+  getPresetDetailCollapsed,
   getPresetGroupStore,
+  setCaptureRule,
   setNotionConfig,
+  setNotionDetailCollapsed,
   setPanelPosition,
+  setPresetDetailCollapsed,
   setPresetGroupStore,
 } from '../shared/storage';
 import {
@@ -27,10 +34,19 @@ import {
   type NotionFormValues,
 } from '../shared/notion';
 import {
+  requestCaptureClear,
+  requestCaptureExport,
+  requestCaptureStart,
+  requestCaptureState,
+  requestCaptureStop,
+} from '../shared/capture';
+import {
+  DEFAULT_CAPTURE_RUNTIME_STATE,
   DEFAULT_NOTION_SYNC_STATE,
   DEFAULT_PRESET_GROUP_STORE,
   DEFAULT_PRESET_ITEMS,
   STORAGE_KEYS,
+  type CaptureRuntimeState,
   type NotionCacheSnapshot,
   type NotionConfig,
   type NotionDateValue,
@@ -66,6 +82,157 @@ const BLOCKED_INPUT_TYPES = new Set([
   'week',
 ]);
 const QUICK_UPDATE_TYPES = new Set(['title', 'rich_text', 'url', 'email', 'phone_number', 'select']);
+const COMMENT_TEXT_KEYWORDS = [
+  'leave a reply',
+  'comment',
+  'reply',
+  'discussion',
+  'add a comment',
+  '评论',
+  '回复',
+  '留下回复',
+  '发表评论',
+  '写下你的评论',
+];
+const COMMENT_ATTR_KEYWORDS = ['comment', 'reply', 'discussion', 'message'];
+
+function normalizeMatchText(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function countKeywordMatches(text: string, keywords: readonly string[]): number {
+  const normalized = normalizeMatchText(text);
+  if (!normalized) {
+    return 0;
+  }
+
+  return keywords.reduce((total, keyword) => {
+    return normalized.includes(keyword) ? total + 1 : total;
+  }, 0);
+}
+
+function isVisibleTextarea(textarea: HTMLTextAreaElement): boolean {
+  const rect = textarea.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) {
+    return false;
+  }
+
+  const style = window.getComputedStyle(textarea);
+  return style.display !== 'none' && style.visibility !== 'hidden';
+}
+
+function getTextareaLabelText(textarea: HTMLTextAreaElement): string {
+  const wrappingLabel = textarea.closest('label');
+  if (wrappingLabel?.textContent) {
+    return wrappingLabel.textContent;
+  }
+
+  if (!textarea.id) {
+    return '';
+  }
+
+  const labels = Array.from(document.querySelectorAll('label'));
+  for (const label of labels) {
+    if ((label as HTMLLabelElement).htmlFor === textarea.id) {
+      return label.textContent ?? '';
+    }
+  }
+
+  return '';
+}
+
+function getTextareaCommentScore(textarea: HTMLTextAreaElement): number {
+  let score = 0;
+
+  const directText = `${textarea.placeholder} ${textarea.getAttribute('aria-label') ?? ''}`;
+  score += countKeywordMatches(directText, COMMENT_TEXT_KEYWORDS) * 8;
+
+  const labelText = getTextareaLabelText(textarea);
+  score += countKeywordMatches(labelText, COMMENT_TEXT_KEYWORDS) * 6;
+
+  const ownAttrText = `${textarea.id} ${textarea.name} ${textarea.className}`;
+  score += countKeywordMatches(ownAttrText, COMMENT_ATTR_KEYWORDS) * 5;
+
+  let ancestor: HTMLElement | null = textarea.parentElement;
+  let depth = 0;
+  while (ancestor && depth < 5) {
+    const attrText = `${ancestor.id} ${ancestor.className}`;
+    score += countKeywordMatches(attrText, COMMENT_ATTR_KEYWORDS) * Math.max(1, 5 - depth);
+
+    const text = (ancestor.textContent ?? '').slice(0, 800);
+    score += countKeywordMatches(text, COMMENT_TEXT_KEYWORDS) * Math.max(1, 4 - depth);
+
+    ancestor = ancestor.parentElement;
+    depth += 1;
+  }
+
+  return score;
+}
+
+function findBestCommentTextarea(rootElement: HTMLElement): HTMLTextAreaElement | null {
+  const candidates = Array.from(document.querySelectorAll('textarea')).filter((textarea) => {
+    if (rootElement.contains(textarea)) {
+      return false;
+    }
+
+    if (textarea.disabled || textarea.readOnly) {
+      return false;
+    }
+
+    return isVisibleTextarea(textarea);
+  });
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const viewportCenterY = window.innerHeight / 2;
+
+  const sorted = candidates
+    .map((textarea) => {
+      const rect = textarea.getBoundingClientRect();
+      return {
+        textarea,
+        score: getTextareaCommentScore(textarea),
+        viewportDistance: Math.abs(rect.top + rect.height / 2 - viewportCenterY),
+      };
+    })
+    .sort((a, b) => {
+      if (a.score !== b.score) {
+        return b.score - a.score;
+      }
+      return a.viewportDistance - b.viewportDistance;
+    });
+
+  return sorted[0]?.textarea ?? null;
+}
+
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // fallback below
+    }
+  }
+
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', 'true');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+    const copied = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return copied;
+  } catch {
+    return false;
+  }
+}
 
 function isTextInput(element: Element): element is HTMLInputElement {
   if (!(element instanceof HTMLInputElement)) {
@@ -170,17 +337,6 @@ function parseUrlLike(value: string): URL | null {
       return null;
     }
   }
-}
-
-function getRoamUrlIdentity(value: string): string | null {
-  const parsed = parseUrlLike(value);
-  if (!parsed) {
-    return null;
-  }
-
-  const hostname = parsed.hostname.toLowerCase().replace(/^www\./, '');
-  const pathname = parsed.pathname.replace(/\/+$/, '') || '/';
-  return `${hostname}${pathname}`;
 }
 
 function getRoamTargetUrl(value: string): string | null {
@@ -323,6 +479,14 @@ function formatSyncTime(timestamp: number | null): string {
   return `${hours} 小时前同步`;
 }
 
+function formatDateTime(timestamp: number | null): string {
+  if (!timestamp) {
+    return '-';
+  }
+
+  return new Date(timestamp).toLocaleString();
+}
+
 function getNotionStatusText(
   configured: boolean,
   syncState: NotionSyncState,
@@ -442,7 +606,12 @@ export default function App({ rootElement }: AppProps) {
   const [notionFormValues, setNotionFormValues] = useState<NotionFormValues>({});
   const [quickFieldInput, setQuickFieldInput] = useState('');
   const [isSubmittingNotion, setIsSubmittingNotion] = useState(false);
+  const [captureRuleInput, setCaptureRuleInput] = useState('');
+  const [captureState, setCaptureState] = useState<CaptureRuntimeState>(DEFAULT_CAPTURE_RUNTIME_STATE);
+  const [isCaptureBusy, setIsCaptureBusy] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isNotionDetailCollapsed, setIsNotionDetailCollapsed] = useState(true);
+  const [isPresetDetailCollapsed, setIsPresetDetailCollapsed] = useState(false);
 
   const noticeTimerRef = useRef<number | null>(null);
 
@@ -513,14 +682,27 @@ export default function App({ rootElement }: AppProps) {
 
     void (async () => {
       try {
-        const [storedPresetStore, storedPosition, storedNotionConfig, storedNotionCache, storedNotionSyncState] =
-          await Promise.all([
-            getPresetGroupStore(),
-            getPanelPosition(),
-            getNotionConfig(),
-            getNotionCache(),
-            getNotionSyncState(),
-          ]);
+        const [
+          storedPresetStore,
+          storedPosition,
+          storedNotionConfig,
+          storedNotionCache,
+          storedNotionSyncState,
+          storedNotionDetailCollapsed,
+          storedPresetDetailCollapsed,
+          storedCaptureRule,
+          storedCaptureState,
+        ] = await Promise.all([
+          getPresetGroupStore(),
+          getPanelPosition(),
+          getNotionConfig(),
+          getNotionCache(),
+          getNotionSyncState(),
+          getNotionDetailCollapsed(),
+          getPresetDetailCollapsed(),
+          getCaptureRule(),
+          getCaptureRuntimeState(),
+        ]);
 
         if (cancelled) {
           return;
@@ -532,6 +714,10 @@ export default function App({ rootElement }: AppProps) {
         setNotionConfigState(storedNotionConfig);
         setDraftNotionConfig(cloneNotionConfig(storedNotionConfig));
         applyNotionState(storedNotionCache, storedNotionSyncState);
+        setIsNotionDetailCollapsed(storedNotionDetailCollapsed);
+        setIsPresetDetailCollapsed(storedPresetDetailCollapsed);
+        setCaptureRuleInput(storedCaptureRule || storedCaptureState.rule);
+        setCaptureState(storedCaptureState);
 
         if (storedPosition) {
           const panel = panelRef.current;
@@ -546,6 +732,14 @@ export default function App({ rootElement }: AppProps) {
           const payload = await requestNotionCache();
           if (!cancelled) {
             applyNotionState(payload.cache, payload.syncState);
+          }
+        }
+
+        const capturePayload = await requestCaptureState();
+        if (!cancelled) {
+          setCaptureState(capturePayload.state);
+          if (!storedCaptureRule && capturePayload.state.rule) {
+            setCaptureRuleInput(capturePayload.state.rule);
           }
         }
       } catch (error) {
@@ -606,6 +800,26 @@ export default function App({ rootElement }: AppProps) {
         setNotionSyncStateState(
           (changes[STORAGE_KEYS.notionSyncState].newValue as NotionSyncState | undefined) ??
             DEFAULT_NOTION_SYNC_STATE,
+        );
+      }
+
+      if (changes[STORAGE_KEYS.notionDetailCollapsed]) {
+        setIsNotionDetailCollapsed(Boolean(changes[STORAGE_KEYS.notionDetailCollapsed].newValue));
+      }
+
+      if (changes[STORAGE_KEYS.presetDetailCollapsed]) {
+        setIsPresetDetailCollapsed(Boolean(changes[STORAGE_KEYS.presetDetailCollapsed].newValue));
+      }
+
+      if (changes[STORAGE_KEYS.captureRule]) {
+        const nextRule = (changes[STORAGE_KEYS.captureRule].newValue as string | undefined)?.trim() ?? '';
+        setCaptureRuleInput(nextRule);
+      }
+
+      if (changes[STORAGE_KEYS.captureRuntimeState]) {
+        setCaptureState(
+          (changes[STORAGE_KEYS.captureRuntimeState].newValue as CaptureRuntimeState | undefined) ??
+            DEFAULT_CAPTURE_RUNTIME_STATE,
         );
       }
     }
@@ -822,6 +1036,118 @@ export default function App({ rootElement }: AppProps) {
     refreshNotion();
   }, [notionCache, notionConfig, notionSyncState.isSyncing, refreshNotion]);
 
+  async function startCapture() {
+    const rule = captureRuleInput.trim();
+    if (!rule) {
+      showError('请先输入 URL 过滤规则');
+      return;
+    }
+
+    setIsCaptureBusy(true);
+    clearError();
+
+    try {
+      await setCaptureRule(rule);
+      const payload = await requestCaptureStart(rule);
+      setCaptureState(payload.state);
+      showNotice('已开始录制，请刷新页面');
+    } catch (error) {
+      showError(error);
+    } finally {
+      setIsCaptureBusy(false);
+    }
+  }
+
+  async function stopCapture() {
+    setIsCaptureBusy(true);
+    clearError();
+
+    try {
+      const payload = await requestCaptureStop();
+      setCaptureState(payload.state);
+      showNotice('已停止录制');
+    } catch (error) {
+      showError(error);
+    } finally {
+      setIsCaptureBusy(false);
+    }
+  }
+
+  async function clearCaptureData() {
+    setIsCaptureBusy(true);
+    clearError();
+
+    try {
+      const payload = await requestCaptureClear();
+      setCaptureState(payload.state);
+      showNotice('已清空录制数据');
+    } catch (error) {
+      showError(error);
+    } finally {
+      setIsCaptureBusy(false);
+    }
+  }
+
+  async function exportCaptureData() {
+    setIsCaptureBusy(true);
+    clearError();
+
+    try {
+      const payload = await requestCaptureExport();
+      showNotice(`已下载 ${payload.count} 条数据`);
+      const next = await requestCaptureState();
+      setCaptureState(next.state);
+    } catch (error) {
+      showError(error);
+    } finally {
+      setIsCaptureBusy(false);
+    }
+  }
+
+  async function refreshCaptureState() {
+    setIsCaptureBusy(true);
+    clearError();
+
+    try {
+      const payload = await requestCaptureState();
+      setCaptureState(payload.state);
+    } catch (error) {
+      showError(error);
+    } finally {
+      setIsCaptureBusy(false);
+    }
+  }
+
+  function toggleNotionDetailCollapsed() {
+    const previous = isNotionDetailCollapsed;
+    const next = !previous;
+    setIsNotionDetailCollapsed(next);
+
+    void (async () => {
+      try {
+        await setNotionDetailCollapsed(next);
+      } catch (error) {
+        setIsNotionDetailCollapsed(previous);
+        showError(error);
+      }
+    })();
+  }
+
+  function togglePresetDetailCollapsed() {
+    const previous = isPresetDetailCollapsed;
+    const next = !previous;
+    setIsPresetDetailCollapsed(next);
+
+    void (async () => {
+      try {
+        await setPresetDetailCollapsed(next);
+      } catch (error) {
+        setIsPresetDetailCollapsed(previous);
+        showError(error);
+      }
+    })();
+  }
+
   function onDragStart(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0) {
       return;
@@ -941,6 +1267,31 @@ export default function App({ rootElement }: AppProps) {
     }
 
     showNotice('已填充');
+  }
+
+  function onCopyPresetValue(value: string) {
+    void (async () => {
+      const copied = await copyTextToClipboard(value);
+      showNotice(copied ? '已复制文本' : '复制失败');
+    })();
+  }
+
+  function onLocateCommentTextarea() {
+    const target = findBestCommentTextarea(rootElement);
+    if (!target) {
+      showNotice('未找到可用评论输入框');
+      return;
+    }
+
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.focus({ preventScroll: true });
+
+    activeTargetRef.current = target;
+    const start = target.selectionStart ?? target.value.length;
+    const end = target.selectionEnd ?? target.value.length;
+    lastInputSelectionRef.current = { start, end };
+
+    showNotice('已定位评论输入框');
   }
 
   function openEditMode(mode: EditMode) {
@@ -1214,25 +1565,21 @@ export default function App({ rootElement }: AppProps) {
 
     const urlFieldKey = notionCache.urlFieldKey;
     const spamFieldKey = getSpamFieldKey(notionCache);
-
-    const currentIdentity = getRoamUrlIdentity(currentPageUrl);
     const currentTargetUrl = getRoamTargetUrl(currentPageUrl);
+    const currentHostname = extractHostname(currentPageUrl);
 
     const candidates = notionCache.records
-      .filter((record) => {
-        const keyField = record.fields[activeKeyField.key];
-        if (!isFieldValueEmpty(keyField?.value)) {
-          return false;
-        }
-
+      .map((record, recordIndex) => {
         const spamField = spamFieldKey ? record.fields[spamFieldKey] : null;
         if (spamField && isSpamValue(spamField.value)) {
-          return false;
+          return null;
         }
 
-        return true;
-      })
-      .map((record) => {
+        const keyField = record.fields[activeKeyField.key];
+        if (!isFieldValueEmpty(keyField?.value)) {
+          return null;
+        }
+
         const urlField = record.fields[urlFieldKey];
         const rawUrl = typeof urlField?.value === 'string' ? urlField.value.trim() : '';
         const targetUrl = getRoamTargetUrl(rawUrl);
@@ -1241,38 +1588,42 @@ export default function App({ rootElement }: AppProps) {
         }
 
         return {
+          recordIndex,
           targetUrl,
-          identity: getRoamUrlIdentity(rawUrl),
         };
       })
-      .filter((item): item is { targetUrl: string; identity: string | null } => Boolean(item));
+      .filter((item): item is { recordIndex: number; targetUrl: string } => Boolean(item));
 
     if (candidates.length === 0) {
       showNotice(`列 ${activeKeyField.label} 没有待处理外链记录`);
       return;
     }
 
-    const currentIndex = candidates.findIndex((item) => {
-      if (currentIdentity && item.identity) {
-        return item.identity === currentIdentity;
+    let startCandidateIndex = 0;
+    if (currentHostname) {
+      const anchorRecordIndex = notionCache.records.findIndex((record) => record.hostname === currentHostname);
+      if (anchorRecordIndex >= 0) {
+        const nextAfterAnchor = candidates.findIndex((item) => item.recordIndex > anchorRecordIndex);
+        startCandidateIndex = nextAfterAnchor >= 0 ? nextAfterAnchor : 0;
       }
-      if (currentTargetUrl) {
-        return item.targetUrl === currentTargetUrl;
+    }
+
+    let nextTargetUrl: string | null = null;
+    for (let i = 0; i < candidates.length; i += 1) {
+      const candidate = candidates[(startCandidateIndex + i) % candidates.length];
+      if (!currentTargetUrl || candidate.targetUrl !== currentTargetUrl) {
+        nextTargetUrl = candidate.targetUrl;
+        break;
       }
-      return false;
-    });
+    }
 
-    const nextItem = currentIndex >= 0 ? candidates[(currentIndex + 1) % candidates.length] : candidates[0];
-    const isSameAsCurrent = (currentIdentity && nextItem.identity && nextItem.identity === currentIdentity)
-      || (currentTargetUrl && nextItem.targetUrl === currentTargetUrl);
-
-    if (isSameAsCurrent) {
+    if (!nextTargetUrl) {
       showNotice(`列 ${activeKeyField.label} 没有其他待处理外链记录`);
       return;
     }
 
-    window.open(nextItem.targetUrl, '_blank');
-    showNotice('已跳转到: ' + nextItem.targetUrl.substring(0, 50));
+    window.open(nextTargetUrl, '_blank');
+    showNotice('已跳转到: ' + nextTargetUrl.substring(0, 50));
   }
 
   function renderFieldInput(field: NotionFieldSchema) {
@@ -1406,7 +1757,24 @@ export default function App({ rootElement }: AppProps) {
   const notionConfigured = isNotionConfigComplete(notionConfig);
   const notionStatusText = getNotionStatusText(notionConfigured, notionSyncState, notionCache);
   const notionError = notionSyncState.lastError;
-  const missingUrlField = notionCache && !notionCache.urlFieldKey;
+  const missingUrlField = Boolean(notionCache && !notionCache.urlFieldKey);
+  const isViewingExistingRecord = notionMode === 'view' && Boolean(currentRecord);
+  const notionSummaryTitle = isEditingExistingRecord
+    ? '编辑记录'
+    : isViewingExistingRecord
+      ? '已经收录该外链'
+      : '这是一个新的外链';
+  const notionSummarySubtitle = isEditingExistingRecord
+    ? '修改后自动更新 Notion'
+    : isViewingExistingRecord && currentRecord
+      ? `域名：${currentRecord.hostname}`
+      : `为 ${currentHostname || '当前网站'} 填写外链信息`;
+  const captureStatusText = captureState.isRecording
+    ? '录制中（刷新页面后会自动捕获）'
+    : captureState.startedAt
+      ? '已停止'
+      : '未开始';
+  const captureLastExportText = captureState.lastExportAt ? formatDateTime(captureState.lastExportAt) : '尚未下载';
 
   return (
     <div
@@ -1501,6 +1869,7 @@ export default function App({ rootElement }: AppProps) {
           ) : null}
         </section>
 
+
         <section className="qpf-section">
           <div className="qpf-section-head">
             <div>
@@ -1528,6 +1897,14 @@ export default function App({ rootElement }: AppProps) {
                 >
                   外链漫游
                 </button>
+                <button
+                  type="button"
+                  className="qpf-mini-btn"
+                  onClick={toggleNotionDetailCollapsed}
+                  disabled={!notionCache || missingUrlField}
+                >
+                  {isNotionDetailCollapsed ? '展开详情' : '收起详情'}
+                </button>
               </div>
             ) : null}
           </div>
@@ -1547,6 +1924,36 @@ export default function App({ rootElement }: AppProps) {
             <div className="qpf-record-wrap">
               {notionError ? <div className="qpf-error qpf-error-inline">{notionError}</div> : null}
 
+              <div className="qpf-notion-summary-box">
+                <div>
+                  <div className={`qpf-section-title${!isEditingExistingRecord && !isViewingExistingRecord ? ' qpf-golden-text' : ''}`}>
+                    {notionSummaryTitle}
+                  </div>
+                  <div className="qpf-section-subtitle">{notionSummarySubtitle}</div>
+                </div>
+                {isEditingExistingRecord ? (
+                  <button
+                    type="button"
+                    className="qpf-mini-btn qpf-cancel-btn"
+                    onClick={cancelNotionEdit}
+                    disabled={isSubmittingNotion}
+                  >
+                    取消
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="qpf-mini-btn qpf-cancel-btn"
+                    onClick={startCreateRecord}
+                    disabled={isSubmittingNotion}
+                  >
+                    重置
+                  </button>
+                )}
+              </div>
+
+              {!isNotionDetailCollapsed ? (
+              <>
               {currentRecord ? (
                 <div className="qpf-key-link-box">
                   <div className="qpf-section-head">
@@ -1634,38 +2041,6 @@ export default function App({ rootElement }: AppProps) {
                 </>
               ) : (
                 <>
-                  <div className="qpf-section-head">
-                    <div>
-                      <div className="qpf-section-title qpf-golden-text">
-                        {isEditingExistingRecord ? '编辑记录' : '这是一个新的外链'}
-                      </div>
-                      <div className="qpf-section-subtitle">
-                        {isEditingExistingRecord ? '修改后自动更新 Notion' : `为 ${currentHostname} 填写外链信息`}
-                      </div>
-                    </div>
-                    {isEditingExistingRecord ? (
-                      <button
-                        type="button"
-                        className="qpf-mini-btn qpf-cancel-btn"
-                        onClick={cancelNotionEdit}
-                        disabled={isSubmittingNotion}
-                      >
-                        取消
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="qpf-mini-btn qpf-cancel-btn"
-                        onClick={startCreateRecord}
-                        disabled={isSubmittingNotion}
-                      >
-                        重置
-                      </button>
-                    )}
-                  </div>
-
-                  {!matchedRecord ? null : null}
-
                   <div className="qpf-record-form">
                     {(() => {
                       const fields = notionCache.fields;
@@ -1742,6 +2117,8 @@ export default function App({ rootElement }: AppProps) {
                   </div>
                 </>
               )}
+              </>
+              ) : null}
             </div>
           )}
         </section>
@@ -1753,6 +2130,16 @@ export default function App({ rootElement }: AppProps) {
             </div>
             {editMode === 'presets' ? (
               <div className="qpf-inline-actions">
+                <button type="button" className="qpf-mini-btn" onClick={onLocateCommentTextarea}>
+                  定位评论框
+                </button>
+                <button
+                  type="button"
+                  className="qpf-mini-btn"
+                  onClick={togglePresetDetailCollapsed}
+                >
+                  {isPresetDetailCollapsed ? '展开详情' : '收起详情'}
+                </button>
                 <button type="button" className="qpf-mini-btn" onClick={() => void savePresetStoreEditing('已保存')}>
                   保存
                 </button>
@@ -1761,62 +2148,196 @@ export default function App({ rootElement }: AppProps) {
                 </button>
               </div>
             ) : (
-              <button type="button" className="qpf-mini-btn" onClick={() => openEditMode('presets')}>
-                设置
-              </button>
+              <div className="qpf-inline-actions">
+                <button type="button" className="qpf-mini-btn" onClick={onLocateCommentTextarea}>
+                  定位评论框
+                </button>
+                <button
+                  type="button"
+                  className="qpf-mini-btn"
+                  onClick={togglePresetDetailCollapsed}
+                >
+                  {isPresetDetailCollapsed ? '展开详情' : '收起详情'}
+                </button>
+                <button type="button" className="qpf-mini-btn" onClick={() => openEditMode('presets')}>
+                  设置
+                </button>
+              </div>
             )}
           </div>
 
-          {editMode === 'presets' ? (
-            <div className="qpf-edit-wrap qpf-edit-wrap-inline">
-              <div className="qpf-edit-list">
-                {(draftActivePresetGroup?.items ?? []).map((item, index) => (
-                  <div className="qpf-edit-row" key={index}>
-                    <div className="qpf-edit-fields">
-                      <input
-                        className="qpf-key-input"
-                        value={item.key}
-                        onChange={(event) => updateDraftKey(index, event.target.value)}
-                        placeholder="名称（如：地址）"
-                      />
-                      <textarea
-                        className="qpf-textarea"
-                        value={item.value}
-                        onChange={(event) => updateDraftValue(index, event.target.value)}
-                        rows={2}
-                        placeholder="内容（点击时填充）"
-                      />
+          {!isPresetDetailCollapsed ? (
+            editMode === 'presets' ? (
+              <div className="qpf-edit-wrap qpf-edit-wrap-inline">
+                <div className="qpf-edit-list">
+                  {(draftActivePresetGroup?.items ?? []).map((item, index) => (
+                    <div className="qpf-edit-row" key={index}>
+                      <div className="qpf-edit-fields">
+                        <input
+                          className="qpf-key-input"
+                          value={item.key}
+                          onChange={(event) => updateDraftKey(index, event.target.value)}
+                          placeholder="名称（如：地址）"
+                        />
+                        <textarea
+                          className="qpf-textarea"
+                          value={item.value}
+                          onChange={(event) => updateDraftValue(index, event.target.value)}
+                          rows={2}
+                          placeholder="内容（点击时填充）"
+                        />
+                      </div>
+                      <button type="button" className="qpf-mini-btn" onClick={() => removeDraft(index)}>
+                        删除
+                      </button>
                     </div>
-                    <button type="button" className="qpf-mini-btn" onClick={() => removeDraft(index)}>
-                      删除
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <div className="qpf-edit-actions">
-                <button type="button" className="qpf-mini-btn" onClick={addDraft}>
-                  添加文本
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="qpf-list">
-              {presetItems.length === 0 ? (
-                <div className="qpf-empty">暂无预设文本，点击「设置」添加</div>
-              ) : (
-                presetItems.map((item, index) => (
-                  <button
-                    type="button"
-                    key={`${item.key}-${item.value}-${index}`}
-                    className="qpf-item"
-                    onClick={() => onPresetClick(item.value)}
-                    title={`${item.key}: ${item.value}`}
-                  >
-                    <div className="qpf-item-key">{item.key}</div>
-                    <div className="qpf-item-value">{item.value}</div>
+                  ))}
+                </div>
+                <div className="qpf-edit-actions">
+                  <button type="button" className="qpf-mini-btn" onClick={addDraft}>
+                    添加文本
                   </button>
-                ))
-              )}
+                </div>
+              </div>
+            ) : (
+              <div className="qpf-list">
+                {presetItems.length === 0 ? (
+                  <div className="qpf-empty">暂无预设文本，点击「设置」添加</div>
+                ) : (
+                  presetItems.map((item, index) => (
+                    <div
+                      key={`${item.key}-${item.value}-${index}`}
+                      className="qpf-item qpf-item-button"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => onPresetClick(item.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          onPresetClick(item.value);
+                        }
+                      }}
+                      title={`${item.key}: ${item.value}`}
+                    >
+                      <div className="qpf-item-head">
+                        <div className="qpf-item-key">{item.key}</div>
+                        <button
+                          type="button"
+                          className="qpf-copy-btn"
+                          aria-label="复制文本"
+                          title="复制文本"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onCopyPresetValue(item.value);
+                          }}
+                        >
+                          📋
+                        </button>
+                      </div>
+                      <div className="qpf-item-value">{item.value}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )
+          ) : null}
+        </section>
+
+        <section className="qpf-section qpf-capture-section">
+          <div className="qpf-section-head">
+            <div>
+              <div className="qpf-section-title">请求录制</div>
+              <div className="qpf-section-subtitle">{captureStatusText}</div>
+            </div>
+            <div className="qpf-inline-actions">
+              <button
+                type="button"
+                className="qpf-mini-btn"
+                onClick={() => void refreshCaptureState()}
+                disabled={isCaptureBusy}
+              >
+                刷新状态
+              </button>
+            </div>
+          </div>
+
+          <div className="qpf-domain-create">
+            <input
+              className="qpf-key-input"
+              value={captureRuleInput}
+              disabled={isCaptureBusy || captureState.isRecording}
+              onChange={(event) => setCaptureRuleInput(event.target.value)}
+              placeholder="输入 URL 规则（包含匹配，或 /regex/）"
+            />
+            <button
+              type="button"
+              className="qpf-mini-btn"
+              onClick={() => void startCapture()}
+              disabled={isCaptureBusy || captureState.isRecording}
+            >
+              开始录制
+            </button>
+          </div>
+
+          <div className="qpf-inline-actions qpf-capture-actions">
+            <button
+              type="button"
+              className="qpf-mini-btn"
+              onClick={() => void stopCapture()}
+              disabled={isCaptureBusy || !captureState.isRecording}
+            >
+              停止录制
+            </button>
+            <button
+              type="button"
+              className="qpf-mini-btn"
+              onClick={() => void exportCaptureData()}
+              disabled={isCaptureBusy || captureState.capturedCount === 0}
+            >
+              下载数据
+            </button>
+            <button
+              type="button"
+              className="qpf-mini-btn qpf-cancel-btn"
+              onClick={() => void clearCaptureData()}
+              disabled={isCaptureBusy || captureState.capturedCount === 0}
+            >
+              清空
+            </button>
+          </div>
+
+          <div className="qpf-capture-meta-grid">
+            <div className="qpf-capture-meta-item">规则：{captureState.rule || '-'}</div>
+            <div className="qpf-capture-meta-item">条数：{captureState.capturedCount}</div>
+            <div className="qpf-capture-meta-item">丢弃：{captureState.droppedCount}</div>
+            <div className="qpf-capture-meta-item">最后下载：{captureLastExportText}</div>
+          </div>
+
+          {captureState.lastError ? <div className="qpf-error qpf-error-inline">{captureState.lastError}</div> : null}
+
+          {captureState.recent.length === 0 ? (
+            <div className="qpf-empty">暂无录制数据。点击「开始录制」后刷新页面。</div>
+          ) : (
+            <div className="qpf-capture-list">
+              {captureState.recent.map((item) => (
+                <div className="qpf-capture-item" key={item.id}>
+                  <div className="qpf-capture-item-head">
+                    <span className="qpf-capture-method">{item.method}</span>
+                    <span className="qpf-capture-status">{item.status}</span>
+                    <span className="qpf-capture-source">{item.source.toUpperCase()}</span>
+                  </div>
+                  <div className="qpf-capture-url" title={item.url}>
+                    {item.url}
+                  </div>
+                  <div className="qpf-capture-foot">
+                    <span>{formatDateTime(item.timestamp)}</span>
+                    <span>{item.responseLength} chars</span>
+                    {item.responseTruncated ? <span>已截断</span> : null}
+                    {item.error ? <span className="qpf-capture-error">{item.error}</span> : null}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </section>

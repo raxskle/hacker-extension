@@ -1,8 +1,12 @@
 import {
+  DEFAULT_CAPTURE_RUNTIME_STATE,
   DEFAULT_NOTION_SYNC_STATE,
   DEFAULT_PRESET_GROUP_STORE,
   DEFAULT_PRESET_ITEMS,
   STORAGE_KEYS,
+  type CaptureRecord,
+  type CaptureRecordSummary,
+  type CaptureRuntimeState,
   type NotionCacheSnapshot,
   type NotionConfig,
   type NotionDateValue,
@@ -13,8 +17,7 @@ import {
   type PresetGroup,
   type PresetGroupStore,
   type PresetItem,
-} from './types';
-import { extractHostname } from './notion';
+} from './types';import { extractHostname } from './notion';
 
 function normalizePresetItems(input: unknown): PresetItem[] {
   if (!Array.isArray(input)) return [];
@@ -332,6 +335,209 @@ export async function getNotionSyncState(): Promise<NotionSyncState> {
 
 export async function setNotionSyncState(state: NotionSyncState): Promise<void> {
   await chrome.storage.local.set({ [STORAGE_KEYS.notionSyncState]: state });
+}
+
+export async function getNotionDetailCollapsed(): Promise<boolean> {
+  const data = await chrome.storage.local.get(STORAGE_KEYS.notionDetailCollapsed);
+  const value = data[STORAGE_KEYS.notionDetailCollapsed];
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  await chrome.storage.local.set({ [STORAGE_KEYS.notionDetailCollapsed]: true });
+  return true;
+}
+
+export async function setNotionDetailCollapsed(collapsed: boolean): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEYS.notionDetailCollapsed]: collapsed });
+}
+
+export async function getPresetDetailCollapsed(): Promise<boolean> {
+  const data = await chrome.storage.local.get(STORAGE_KEYS.presetDetailCollapsed);
+  const value = data[STORAGE_KEYS.presetDetailCollapsed];
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  await chrome.storage.local.set({ [STORAGE_KEYS.presetDetailCollapsed]: false });
+  return false;
+}
+
+export async function setPresetDetailCollapsed(collapsed: boolean): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEYS.presetDetailCollapsed]: collapsed });
+}
+
+function isCaptureSourceType(value: unknown): value is CaptureRecordSummary['source'] {
+  return value === 'fetch' || value === 'xhr';
+}
+
+function normalizeCaptureRecordSummary(value: unknown): CaptureRecordSummary | null {
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+
+  const record = value as Partial<CaptureRecordSummary>;
+  if (
+    typeof record.id !== 'string' ||
+    !isCaptureSourceType(record.source) ||
+    typeof record.timestamp !== 'number' ||
+    typeof record.url !== 'string' ||
+    typeof record.method !== 'string' ||
+    typeof record.status !== 'number' ||
+    typeof record.contentType !== 'string' ||
+    typeof record.responseLength !== 'number' ||
+    typeof record.responseTruncated !== 'boolean' ||
+    typeof record.error !== 'string'
+  ) {
+    return null;
+  }
+
+  return {
+    id: record.id,
+    source: record.source,
+    timestamp: record.timestamp,
+    url: record.url,
+    method: record.method,
+    status: record.status,
+    contentType: record.contentType,
+    responseLength: record.responseLength,
+    responseTruncated: record.responseTruncated,
+    error: record.error,
+  };
+}
+
+function normalizeCaptureRuntimeState(input: unknown): CaptureRuntimeState {
+  if (typeof input !== 'object' || input === null) {
+    return DEFAULT_CAPTURE_RUNTIME_STATE;
+  }
+
+  const raw = input as Partial<CaptureRuntimeState>;
+  const recent = Array.isArray(raw.recent)
+    ? raw.recent
+        .map((item) => normalizeCaptureRecordSummary(item))
+        .filter((item): item is CaptureRecordSummary => Boolean(item))
+        .slice(0, 20)
+    : [];
+
+  return {
+    isRecording: typeof raw.isRecording === 'boolean' ? raw.isRecording : false,
+    rule: typeof raw.rule === 'string' ? raw.rule : '',
+    tabId: typeof raw.tabId === 'number' ? raw.tabId : null,
+    startedAt: typeof raw.startedAt === 'number' ? raw.startedAt : null,
+    stoppedAt: typeof raw.stoppedAt === 'number' ? raw.stoppedAt : null,
+    capturedCount: typeof raw.capturedCount === 'number' ? raw.capturedCount : 0,
+    droppedCount: typeof raw.droppedCount === 'number' ? raw.droppedCount : 0,
+    totalChars: typeof raw.totalChars === 'number' ? raw.totalChars : 0,
+    lastError: typeof raw.lastError === 'string' ? raw.lastError : '',
+    lastExportAt: typeof raw.lastExportAt === 'number' ? raw.lastExportAt : null,
+    recent,
+  };
+}
+
+export async function getCaptureRule(): Promise<string> {
+  const data = await chrome.storage.local.get(STORAGE_KEYS.captureRule);
+  const value = data[STORAGE_KEYS.captureRule];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+export async function setCaptureRule(rule: string): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEYS.captureRule]: rule.trim() });
+}
+
+export async function getCaptureRuntimeState(): Promise<CaptureRuntimeState> {
+  const data = await chrome.storage.local.get(STORAGE_KEYS.captureRuntimeState);
+  const value = data[STORAGE_KEYS.captureRuntimeState];
+  return normalizeCaptureRuntimeState(value);
+}
+
+export async function setCaptureRuntimeState(state: CaptureRuntimeState): Promise<void> {
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.captureRuntimeState]: normalizeCaptureRuntimeState(state),
+  });
+}
+
+export async function clearCaptureRuntimeState(): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEYS.captureRuntimeState]: DEFAULT_CAPTURE_RUNTIME_STATE });
+}
+
+function normalizeHeaderRecord(input: unknown): Record<string, string> {
+  if (typeof input !== 'object' || input === null) {
+    return {};
+  }
+
+  const entries = Object.entries(input as Record<string, unknown>)
+    .map(([key, value]) => [key, typeof value === 'string' ? value : String(value)] as const)
+    .filter(([key]) => key.trim().length > 0);
+
+  return Object.fromEntries(entries);
+}
+
+function normalizeCaptureRecord(value: unknown): CaptureRecord | null {
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+
+  const record = value as Partial<CaptureRecord>;
+  if (
+    typeof record.id !== 'string' ||
+    !isCaptureSourceType(record.source) ||
+    typeof record.timestamp !== 'number' ||
+    typeof record.url !== 'string' ||
+    typeof record.method !== 'string' ||
+    typeof record.status !== 'number' ||
+    typeof record.contentType !== 'string' ||
+    typeof record.requestBody !== 'string' ||
+    typeof record.responseBody !== 'string' ||
+    (record.responseEncoding !== 'text' && record.responseEncoding !== 'unavailable') ||
+    typeof record.responseTruncated !== 'boolean' ||
+    typeof record.error !== 'string'
+  ) {
+    return null;
+  }
+
+  return {
+    id: record.id,
+    source: record.source,
+    timestamp: record.timestamp,
+    url: record.url,
+    method: record.method,
+    status: record.status,
+    contentType: record.contentType,
+    requestBody: record.requestBody,
+    responseBody: record.responseBody,
+    responseEncoding: record.responseEncoding,
+    responseTruncated: record.responseTruncated,
+    requestHeaders: normalizeHeaderRecord(record.requestHeaders),
+    responseHeaders: normalizeHeaderRecord(record.responseHeaders),
+    error: record.error,
+  };
+}
+
+function normalizeCaptureRecords(input: unknown): CaptureRecord[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  return input
+    .map((item) => normalizeCaptureRecord(item))
+    .filter((item): item is CaptureRecord => Boolean(item));
+}
+
+export async function getCaptureRecords(): Promise<CaptureRecord[]> {
+  const data = await chrome.storage.local.get(STORAGE_KEYS.captureRecords);
+  return normalizeCaptureRecords(data[STORAGE_KEYS.captureRecords]);
+}
+
+export async function setCaptureRecords(records: CaptureRecord[]): Promise<void> {
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.captureRecords]: normalizeCaptureRecords(records),
+  });
+}
+
+export async function clearCaptureRecords(): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEYS.captureRecords]: [] });
 }
 
 function normalizeDomainRule(value: string): string | null {

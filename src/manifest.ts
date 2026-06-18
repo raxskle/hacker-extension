@@ -8,7 +8,7 @@ export default defineManifest({
   action: {
     default_title: 'Hacker Extension',
   },
-  permissions: ['storage', 'unlimitedStorage'],
+  permissions: ['storage', 'unlimitedStorage', 'downloads'],
   host_permissions: ['<all_urls>', 'https://api.notion.com/*'],
   options_page: 'options.html',
   background: {
@@ -18,8 +18,19 @@ export default defineManifest({
   content_scripts: [
     {
       matches: ['<all_urls>'],
+      js: ['src/content/recorderBridge.ts'],
+      run_at: 'document_start',
+    },
+    {
+      matches: ['<all_urls>'],
       js: ['src/content/main.tsx'],
       run_at: 'document_idle',
+    },
+  ],
+  web_accessible_resources: [
+    {
+      matches: ['<all_urls>'],
+      resources: ['src/content/recorderInjected.ts'],
     },
   ],
 });

@@ -76,6 +76,66 @@ export type NotionSyncState = {
   lastError: string;
 };
 
+export type CaptureSourceType = 'fetch' | 'xhr';
+
+export type CaptureRecord = {
+  id: string;
+  source: CaptureSourceType;
+  timestamp: number;
+  url: string;
+  method: string;
+  status: number;
+  contentType: string;
+  requestBody: string;
+  responseBody: string;
+  responseEncoding: 'text' | 'unavailable';
+  responseTruncated: boolean;
+  requestHeaders: Record<string, string>;
+  responseHeaders: Record<string, string>;
+  error: string;
+};
+
+export type CaptureRecordSummary = {
+  id: string;
+  source: CaptureSourceType;
+  timestamp: number;
+  url: string;
+  method: string;
+  status: number;
+  contentType: string;
+  responseLength: number;
+  responseTruncated: boolean;
+  error: string;
+};
+
+export type CaptureRuntimeState = {
+  isRecording: boolean;
+  rule: string;
+  tabId: number | null;
+  startedAt: number | null;
+  stoppedAt: number | null;
+  capturedCount: number;
+  droppedCount: number;
+  totalChars: number;
+  lastError: string;
+  lastExportAt: number | null;
+  recent: CaptureRecordSummary[];
+};
+
+export const DEFAULT_CAPTURE_RUNTIME_STATE: CaptureRuntimeState = {
+  isRecording: false,
+  rule: '',
+  tabId: null,
+  startedAt: null,
+  stoppedAt: null,
+  capturedCount: 0,
+  droppedCount: 0,
+  totalChars: 0,
+  lastError: '',
+  lastExportAt: null,
+  recent: [],
+};
+
 export const DEFAULT_NOTION_SYNC_STATE: NotionSyncState = {
   isSyncing: false,
   lastAttemptAt: null,
@@ -98,6 +158,11 @@ export const STORAGE_KEYS = {
   notionDatabaseId: 'notionDatabaseId',
   notionCache: 'notionCache',
   notionSyncState: 'notionSyncState',
+  notionDetailCollapsed: 'notionDetailCollapsed',
+  presetDetailCollapsed: 'presetDetailCollapsed',
+  captureRule: 'captureRule',
+  captureRuntimeState: 'captureRuntimeState',
+  captureRecords: 'captureRecords',
 } as const;
 
 export const DEFAULT_PRESET_ITEMS: PresetItem[] = [
