@@ -1,7 +1,7 @@
-import { CAPTURE_ENSURE_HOOK, requestCaptureAppend } from '../shared/capture';
+import { requestCaptureAppend } from '../shared/capture';
 
 type BridgeMessagePayload = {
-  source: 'fetch' | 'xhr';
+  source: 'fetch' | 'xhr' | 'beacon';
   timestamp: number;
   url: string;
   method: string;
@@ -18,17 +18,6 @@ type BridgeMessagePayload = {
 
 const BRIDGE_SOURCE = 'hacker-extension-recorder';
 
-function injectRecorderScript(): void {
-  const script = document.createElement('script');
-  script.src = chrome.runtime.getURL('src/content/recorderInjected.ts');
-  script.type = 'module';
-  script.dataset.hackerExtensionRecorder = 'true';
-  script.onload = () => {
-    script.remove();
-  };
-  (document.documentElement || document.head || document.body).appendChild(script);
-}
-
 function isBridgePayload(value: unknown): value is BridgeMessagePayload {
   if (typeof value !== 'object' || value === null) {
     return false;
@@ -36,7 +25,7 @@ function isBridgePayload(value: unknown): value is BridgeMessagePayload {
 
   const payload = value as Partial<BridgeMessagePayload>;
   return (
-    (payload.source === 'fetch' || payload.source === 'xhr') &&
+    (payload.source === 'fetch' || payload.source === 'xhr' || payload.source === 'beacon') &&
     typeof payload.timestamp === 'number' &&
     typeof payload.url === 'string' &&
     typeof payload.method === 'string' &&
@@ -53,22 +42,6 @@ function isBridgePayload(value: unknown): value is BridgeMessagePayload {
     typeof payload.error === 'string'
   );
 }
-
-injectRecorderScript();
-
-chrome.runtime.onMessage.addListener((message: unknown) => {
-  if (!message || typeof message !== 'object') {
-    return undefined;
-  }
-
-  const type = (message as { type?: unknown }).type;
-  if (type !== CAPTURE_ENSURE_HOOK) {
-    return undefined;
-  }
-
-  injectRecorderScript();
-  return undefined;
-});
 
 window.addEventListener('message', (event: MessageEvent) => {
   if (event.source !== window) {

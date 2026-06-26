@@ -23,16 +23,28 @@
   "content_scripts": [
     {
       "js": [
-        "assets/recorderBridge.ts-loader-DEXQG4LS.js"
+        "assets/recorderBridge.ts-loader-CyllNq5q.js"
       ],
       "matches": [
         "<all_urls>"
       ],
-      "run_at": "document_start"
+      "run_at": "document_start",
+      "all_frames": true
     },
     {
       "js": [
-        "assets/main.tsx-loader-tDgGK93L.js"
+        "assets/recorderInjected.ts-BXyPAaDp.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    },
+    {
+      "js": [
+        "assets/main.tsx-loader-DCg59Bc_.js"
       ],
       "matches": [
         "<all_urls>"
@@ -49,12 +61,12 @@
         "<all_urls>"
       ],
       "resources": [
-        "src/content/recorderInjected.ts",
-        "assets/capture-DlJzxebY.js",
-        "assets/recorderBridge.ts-4wskWMVY.js",
+        "assets/capture-DH_tnSBr.js",
+        "assets/recorderBridge.ts-D-4gjh8m.js",
+        "assets/recorderInjected.ts-BXyPAaDp.js",
         "assets/jsx-runtime-D0XvMYhy.js",
-        "assets/storage-Sv-J-bvU.js",
-        "assets/main.tsx-C3mwEvRr.js"
+        "assets/storage-2OXClUq6.js",
+        "assets/main.tsx-BhZHomc1.js"
       ],
       "use_dynamic_url": false
     }

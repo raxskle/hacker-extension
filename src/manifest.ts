@@ -20,17 +20,19 @@ export default defineManifest({
       matches: ['<all_urls>'],
       js: ['src/content/recorderBridge.ts'],
       run_at: 'document_start',
+      all_frames: true,
+    },
+    {
+      matches: ['<all_urls>'],
+      js: ['src/content/recorderInjected.ts'],
+      run_at: 'document_start',
+      all_frames: true,
+      world: 'MAIN',
     },
     {
       matches: ['<all_urls>'],
       js: ['src/content/main.tsx'],
       run_at: 'document_idle',
-    },
-  ],
-  web_accessible_resources: [
-    {
-      matches: ['<all_urls>'],
-      resources: ['src/content/recorderInjected.ts'],
     },
   ],
 });

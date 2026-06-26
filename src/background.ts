@@ -16,7 +16,6 @@ import {
 import {
   CAPTURE_APPEND,
   CAPTURE_CLEAR,
-  CAPTURE_ENSURE_HOOK,
   CAPTURE_EXPORT,
   CAPTURE_GET_STATE,
   CAPTURE_START,
@@ -27,6 +26,7 @@ import {
   type CaptureAppendPayload,
   type CaptureBackgroundRequest,
   type CaptureExportPayload,
+  type CaptureMatcher,
   type CaptureStatePayload,
 } from './shared/capture';
 import {
@@ -56,6 +56,7 @@ import {
 let notionSyncInFlight: Promise<NotionCachePayload> | null = null;
 let captureState: CaptureRuntimeState = DEFAULT_CAPTURE_RUNTIME_STATE;
 let captureRecords: CaptureRecord[] = [];
+let captureMatcher: CaptureMatcher | null = null;
 
 const MAX_CAPTURE_RECORDS = 400;
 const MAX_CAPTURE_TOTAL_CHARS = 4_000_000;
@@ -104,6 +105,16 @@ async function syncCaptureStateFromStorage() {
     capturedCount: storedRecords.length,
     recent: storedRecords.slice(-20).reverse().map((record) => toCaptureSummary(record)),
   };
+
+  if (captureState.rule) {
+    try {
+      captureMatcher = compileCaptureMatcher(captureState.rule);
+    } catch {
+      captureMatcher = null;
+    }
+  } else {
+    captureMatcher = null;
+  }
 
   if (captureState.isRecording) {
     captureState = {
@@ -204,7 +215,7 @@ async function resolveTabId(preferredTabId?: number): Promise<number | null> {
 
 async function startCapture(rule: string, preferredTabId?: number): Promise<CaptureRuntimeState> {
   const normalizedRule = rule.trim();
-  compileCaptureMatcher(normalizedRule);
+  captureMatcher = compileCaptureMatcher(normalizedRule);
 
   const tabId = await resolveTabId(preferredTabId);
   const now = Date.now();
@@ -219,13 +230,6 @@ async function startCapture(rule: string, preferredTabId?: number): Promise<Capt
   };
 
   await Promise.all([setCaptureRule(normalizedRule), setCaptureRuntimeState(captureState), clearCaptureRecords()]);
-
-  if (typeof tabId === 'number') {
-    void chrome.tabs.sendMessage(tabId, { type: CAPTURE_ENSURE_HOOK }).catch(() => {
-      // Ignore ensure-hook failures, capture pipeline can still work on injected pages.
-    });
-  }
-
   return captureState;
 }
 
@@ -267,20 +271,24 @@ async function appendCapture(payload: CaptureAppendPayload, senderTabId: number 
   }
 
   if (!captureState.rule) {
+    captureMatcher = null;
     return captureState;
   }
 
-  let matched = false;
-  try {
-    matched = isCaptureUrlMatched(payload.url, captureState.rule);
-  } catch (error) {
-    captureState = {
-      ...captureState,
-      lastError: error instanceof Error ? error.message : '录制规则无效',
-    };
-    await setCaptureRuntimeState(captureState);
-    return captureState;
+  if (!captureMatcher || captureMatcher.raw !== captureState.rule) {
+    try {
+      captureMatcher = compileCaptureMatcher(captureState.rule);
+    } catch (error) {
+      captureState = {
+        ...captureState,
+        lastError: error instanceof Error ? error.message : '录制规则无效',
+      };
+      await setCaptureRuntimeState(captureState);
+      return captureState;
+    }
   }
+
+  const matched = isCaptureUrlMatched(payload.url, captureMatcher);
 
   if (!matched) {
     return captureState;
@@ -389,7 +397,81 @@ function buildEndpointSummary(records: CaptureRecord[]) {
 }
 
 function toSafeFileStamp(timestamp: number): string {
-  return new Date(timestamp).toISOString().replace(/[:.]/g, '-');
+  const date = new Date(timestamp);
+  const yyyy = date.getFullYear();
+  const mm = `${date.getMonth() + 1}`.padStart(2, '0');
+  const dd = `${date.getDate()}`.padStart(2, '0');
+  const hh = `${date.getHours()}`.padStart(2, '0');
+  const min = `${date.getMinutes()}`.padStart(2, '0');
+  return `${yyyy}${mm}${dd}-${hh}${min}`;
+}
+
+function toSafeFileSegment(rule: string): string {
+  const lines = rule
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const candidate = lines.find((line) => !line.startsWith('!')) ?? lines[0] ?? 'capture';
+
+  let normalized = candidate.startsWith('!') ? candidate.slice(1).trim() : candidate;
+  if (normalized.startsWith('/')) {
+    const lastSlashIndex = normalized.lastIndexOf('/');
+    if (lastSlashIndex > 0) {
+      normalized = normalized.slice(1, lastSlashIndex);
+    }
+  }
+
+  const safe = normalized
+    .replace(/\s+/g, '_')
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/[-_]{2,}/g, '-')
+    .replace(/^[-_.]+|[-_.]+$/g, '')
+    .slice(0, 80);
+
+  return safe || 'capture';
+}
+
+function toBase64Utf8(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  const chunkSize = 0x8000;
+  let binary = '';
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return btoa(binary);
+}
+
+function dedupeCaptureRecords(records: CaptureRecord[]) {
+  const deduped = new Map<
+    string,
+    {
+      record: CaptureRecord;
+      duplicateCount: number;
+      duplicateRecordIds: string[];
+    }
+  >();
+
+  for (const record of records) {
+    const key = record.responseBody;
+    const existing = deduped.get(key);
+    if (!existing) {
+      deduped.set(key, {
+        record,
+        duplicateCount: 1,
+        duplicateRecordIds: [record.id],
+      });
+      continue;
+    }
+
+    existing.duplicateCount += 1;
+    existing.duplicateRecordIds.push(record.id);
+  }
+
+  return [...deduped.values()];
 }
 
 async function exportCapture(): Promise<CaptureExportPayload> {
@@ -398,7 +480,9 @@ async function exportCapture(): Promise<CaptureExportPayload> {
   }
 
   const now = Date.now();
-  const endpointSummary = buildEndpointSummary(captureRecords);
+  const deduped = dedupeCaptureRecords(captureRecords);
+  const dedupedRecords = deduped.map((item) => item.record);
+  const endpointSummary = buildEndpointSummary(dedupedRecords);
   const body = {
     meta: {
       exportedAt: now,
@@ -406,10 +490,16 @@ async function exportCapture(): Promise<CaptureExportPayload> {
       startedAt: captureState.startedAt,
       stoppedAt: captureState.stoppedAt,
       capturedCount: captureState.capturedCount,
+      dedupedCount: dedupedRecords.length,
+      duplicateCollapsedCount: captureRecords.length - dedupedRecords.length,
       droppedCount: captureState.droppedCount,
       totalChars: captureState.totalChars,
     },
-    records: captureRecords,
+    records: deduped.map((item) => ({
+      ...item.record,
+      duplicateCount: item.duplicateCount,
+      duplicateRecordIds: item.duplicateRecordIds,
+    })),
     grouped: endpointSummary,
     ai_hint: [
       '你是接口分析助手。',
@@ -422,36 +512,31 @@ async function exportCapture(): Promise<CaptureExportPayload> {
   };
 
   const serialized = JSON.stringify(body, null, 2);
-  const blob = new Blob([serialized], { type: 'application/json' });
-  const blobUrl = URL.createObjectURL(blob);
+  const fileName = `${toSafeFileSegment(captureState.rule)}-${toSafeFileStamp(now)}.json`;
+  const dataUrl = `data:application/json;charset=utf-8;base64,${toBase64Utf8(serialized)}`;
 
-  const fileName = `hacker-capture-${toSafeFileStamp(now)}.json`;
-  try {
-    const downloadId = await chrome.downloads.download({
-      url: blobUrl,
-      filename: fileName,
-      saveAs: false,
-      conflictAction: 'uniquify',
-    });
+  const downloadId = await chrome.downloads.download({
+    url: dataUrl,
+    filename: fileName,
+    saveAs: true,
+    conflictAction: 'uniquify',
+  });
 
-    if (typeof downloadId !== 'number') {
-      throw new Error('下载失败，请检查浏览器下载权限。');
-    }
-
-    captureState = {
-      ...captureState,
-      lastExportAt: now,
-    };
-    await setCaptureRuntimeState(captureState);
-
-    return {
-      fileName,
-      downloadId,
-      count: captureRecords.length,
-    };
-  } finally {
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 15_000);
+  if (typeof downloadId !== 'number') {
+    throw new Error('下载失败，请检查浏览器下载权限。');
   }
+
+  captureState = {
+    ...captureState,
+    lastExportAt: now,
+  };
+  await setCaptureRuntimeState(captureState);
+
+  return {
+    fileName,
+    downloadId,
+    count: dedupedRecords.length,
+  };
 }
 
 chrome.runtime.onInstalled.addListener(() => {

@@ -76,7 +76,7 @@ export type NotionSyncState = {
   lastError: string;
 };
 
-export type CaptureSourceType = 'fetch' | 'xhr';
+export type CaptureSourceType = 'fetch' | 'xhr' | 'beacon';
 
 export type CaptureRecord = {
   id: string;

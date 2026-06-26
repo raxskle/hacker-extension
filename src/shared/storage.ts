@@ -370,7 +370,7 @@ export async function setPresetDetailCollapsed(collapsed: boolean): Promise<void
 }
 
 function isCaptureSourceType(value: unknown): value is CaptureRecordSummary['source'] {
-  return value === 'fetch' || value === 'xhr';
+  return value === 'fetch' || value === 'xhr' || value === 'beacon';
 }
 
 function normalizeCaptureRecordSummary(value: unknown): CaptureRecordSummary | null {

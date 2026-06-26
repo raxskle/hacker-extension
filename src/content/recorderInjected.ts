@@ -1,6 +1,4 @@
-type CaptureSourceType = 'fetch' | 'xhr';
-
-export {};
+type CaptureSourceType = 'fetch' | 'xhr' | 'beacon';
 
 type CapturePayload = {
   source: CaptureSourceType;
@@ -18,11 +16,7 @@ type CapturePayload = {
   error: string;
 };
 
-declare global {
-  interface Window {
-    __HACKER_EXTENSION_CAPTURE_PATCHED__?: boolean;
-  }
-}
+const captureWindow = window as Window & { __HACKER_EXTENSION_CAPTURE_PATCHED__?: boolean };
 
 const BRIDGE_SOURCE = 'hacker-extension-recorder';
 const MAX_CAPTURE_CHARS = 200_000;
@@ -306,8 +300,59 @@ function patchXhr(): void {
   };
 }
 
-if (!window.__HACKER_EXTENSION_CAPTURE_PATCHED__) {
-  window.__HACKER_EXTENSION_CAPTURE_PATCHED__ = true;
+function patchBeacon(): void {
+  if (typeof navigator.sendBeacon !== 'function') {
+    return;
+  }
+
+  const originalSendBeacon = navigator.sendBeacon.bind(navigator);
+
+  navigator.sendBeacon = function patchedSendBeacon(url: string | URL, data?: BodyInit | null): boolean {
+    const targetUrl = typeof url === 'string' ? url : url.href;
+    const requestBody = toTextSnippet(data ?? '');
+
+    try {
+      const result = originalSendBeacon(url, data);
+      emitCapture({
+        source: 'beacon',
+        timestamp: Date.now(),
+        url: targetUrl,
+        method: 'BEACON',
+        status: result ? 204 : 0,
+        contentType: '',
+        requestBody,
+        responseBody: '',
+        responseEncoding: 'unavailable',
+        responseTruncated: false,
+        requestHeaders: {},
+        responseHeaders: {},
+        error: result ? '' : 'sendBeacon returned false',
+      });
+      return result;
+    } catch (error) {
+      emitCapture({
+        source: 'beacon',
+        timestamp: Date.now(),
+        url: targetUrl,
+        method: 'BEACON',
+        status: 0,
+        contentType: '',
+        requestBody,
+        responseBody: '',
+        responseEncoding: 'unavailable',
+        responseTruncated: false,
+        requestHeaders: {},
+        responseHeaders: {},
+        error: error instanceof Error ? error.message : 'sendBeacon failed',
+      });
+      throw error;
+    }
+  };
+}
+
+if (!captureWindow.__HACKER_EXTENSION_CAPTURE_PATCHED__) {
+  captureWindow.__HACKER_EXTENSION_CAPTURE_PATCHED__ = true;
   patchFetch();
   patchXhr();
+  patchBeacon();
 }

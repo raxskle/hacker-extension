@@ -2350,7 +2350,7 @@ export default function App({ rootElement }: AppProps) {
               value={captureRuleInput}
               disabled={isCaptureBusy || captureState.isRecording}
               onChange={(event) => setCaptureRuleInput(event.target.value)}
-              placeholder="输入 URL 规则（包含匹配，或 /regex/）"
+              placeholder="每行一条规则；!前缀排除；支持 /regex/flags"
             />
             <button
               type="button"

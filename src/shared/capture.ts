@@ -6,7 +6,6 @@ export const CAPTURE_STOP = 'capture/stop';
 export const CAPTURE_CLEAR = 'capture/clear';
 export const CAPTURE_EXPORT = 'capture/export';
 export const CAPTURE_APPEND = 'capture/append';
-export const CAPTURE_ENSURE_HOOK = 'capture/ensure-hook';
 
 export type CaptureAppendPayload = Omit<CaptureRecord, 'id'>;
 
@@ -115,11 +114,65 @@ export function createCaptureFailure(error: unknown): CaptureBackgroundResponse 
   return { ok: false, error: message };
 }
 
-type CaptureMatcher = {
+type CaptureMatcherRule = {
   raw: string;
+  negate: boolean;
   mode: 'contains' | 'regex';
   regex?: RegExp;
 };
+
+export type CaptureMatcher = {
+  raw: string;
+  rules: CaptureMatcherRule[];
+};
+
+function isRegexFlags(value: string): boolean {
+  return /^[dgimsuvy]*$/i.test(value);
+}
+
+function parseRuleItem(input: string, index: number): CaptureMatcherRule {
+  const negate = input.startsWith('!');
+  const raw = negate ? input.slice(1).trim() : input;
+
+  if (!raw) {
+    throw new Error(`第 ${index + 1} 条规则为空`);
+  }
+
+  if (raw.startsWith('/')) {
+    const lastSlashIndex = raw.lastIndexOf('/');
+    if (lastSlashIndex > 0) {
+      const regexBody = raw.slice(1, lastSlashIndex);
+      const regexFlags = raw.slice(lastSlashIndex + 1);
+
+      if (isRegexFlags(regexFlags)) {
+        try {
+          return {
+            raw,
+            negate,
+            mode: 'regex',
+            regex: new RegExp(regexBody, regexFlags),
+          };
+        } catch (error) {
+          throw new Error(`第 ${index + 1} 条正则无效：${error instanceof Error ? error.message : '格式错误'}`);
+        }
+      }
+    }
+  }
+
+  return {
+    raw,
+    negate,
+    mode: 'contains',
+  };
+}
+
+function matchRule(url: string, rule: CaptureMatcherRule): boolean {
+  if (rule.mode === 'regex') {
+    return Boolean(rule.regex?.test(url));
+  }
+
+  return url.includes(rule.raw);
+}
 
 export function compileCaptureMatcher(rule: string): CaptureMatcher {
   const raw = rule.trim();
@@ -127,25 +180,30 @@ export function compileCaptureMatcher(rule: string): CaptureMatcher {
     throw new Error('请输入 URL 过滤规则');
   }
 
-  if (raw.startsWith('/') && raw.endsWith('/') && raw.length > 2) {
-    const body = raw.slice(1, -1);
-    return {
-      raw,
-      mode: 'regex',
-      regex: new RegExp(body),
-    };
+  const parts = raw
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    throw new Error('请输入 URL 过滤规则');
   }
 
   return {
     raw,
-    mode: 'contains',
+    rules: parts.map((item, index) => parseRuleItem(item, index)),
   };
 }
 
-export function isCaptureUrlMatched(url: string, rule: string): boolean {
-  const matcher = compileCaptureMatcher(rule);
-  if (matcher.mode === 'regex') {
-    return Boolean(matcher.regex?.test(url));
+export function isCaptureUrlMatched(url: string, rule: string | CaptureMatcher): boolean {
+  const matcher = typeof rule === 'string' ? compileCaptureMatcher(rule) : rule;
+  const includeRules = matcher.rules.filter((item) => !item.negate);
+  const excludeRules = matcher.rules.filter((item) => item.negate);
+
+  const includeMatched = includeRules.length === 0 || includeRules.some((item) => matchRule(url, item));
+  if (!includeMatched) {
+    return false;
   }
-  return url.includes(matcher.raw);
+
+  return !excludeRules.some((item) => matchRule(url, item));
 }
