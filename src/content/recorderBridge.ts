@@ -1,4 +1,4 @@
-import { requestCaptureAppend } from '../shared/capture';
+import { CAPTURE_ENSURE_HOOK, requestCaptureAppend } from '../shared/capture';
 
 type BridgeMessagePayload = {
   source: 'fetch' | 'xhr';
@@ -55,6 +55,20 @@ function isBridgePayload(value: unknown): value is BridgeMessagePayload {
 }
 
 injectRecorderScript();
+
+chrome.runtime.onMessage.addListener((message: unknown) => {
+  if (!message || typeof message !== 'object') {
+    return undefined;
+  }
+
+  const type = (message as { type?: unknown }).type;
+  if (type !== CAPTURE_ENSURE_HOOK) {
+    return undefined;
+  }
+
+  injectRecorderScript();
+  return undefined;
+});
 
 window.addEventListener('message', (event: MessageEvent) => {
   if (event.source !== window) {

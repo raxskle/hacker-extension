@@ -6,6 +6,7 @@ export const CAPTURE_STOP = 'capture/stop';
 export const CAPTURE_CLEAR = 'capture/clear';
 export const CAPTURE_EXPORT = 'capture/export';
 export const CAPTURE_APPEND = 'capture/append';
+export const CAPTURE_ENSURE_HOOK = 'capture/ensure-hook';
 
 export type CaptureAppendPayload = Omit<CaptureRecord, 'id'>;
 

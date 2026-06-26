@@ -5,7 +5,7 @@
   (async () => {
     const { onExecute } = await import(
       /* @vite-ignore */
-      chrome.runtime.getURL("assets/recorderBridge.ts-CkLLSMkD.js")
+      chrome.runtime.getURL("assets/main.tsx-C3mwEvRr.js")
     );
     onExecute?.({ perf: { injectTime, loadTime: performance.now() - injectTime } });
   })().catch(console.error);

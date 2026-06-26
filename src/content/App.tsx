@@ -1132,7 +1132,7 @@ export default function App({ rootElement }: AppProps) {
       await setCaptureRule(rule);
       const payload = await requestCaptureStart(rule);
       setCaptureState(payload.state);
-      showNotice('已开始录制，请刷新页面');
+      showNotice('已开始录制，可直接操作页面触发请求（无需刷新）');
     } catch (error) {
       showError(error);
     } finally {
@@ -1852,7 +1852,7 @@ export default function App({ rootElement }: AppProps) {
       ? `域名：${currentRecord.hostname}`
       : `为 ${currentHostname || '当前网站'} 填写外链信息`;
   const captureStatusText = captureState.isRecording
-    ? '录制中（刷新页面后会自动捕获）'
+    ? '录制中（可直接操作页面触发捕获）'
     : captureState.startedAt
       ? '已停止'
       : '未开始';
@@ -2399,7 +2399,7 @@ export default function App({ rootElement }: AppProps) {
           {captureState.lastError ? <div className="qpf-error qpf-error-inline">{captureState.lastError}</div> : null}
 
           {captureState.recent.length === 0 ? (
-            <div className="qpf-empty">暂无录制数据。点击「开始录制」后刷新页面。</div>
+            <div className="qpf-empty">暂无录制数据。点击「开始录制」后直接触发请求即可。</div>
           ) : (
             <div className="qpf-capture-list">
               {captureState.recent.map((item) => (

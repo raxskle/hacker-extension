@@ -23,7 +23,7 @@
   "content_scripts": [
     {
       "js": [
-        "assets/recorderBridge.ts-loader-DCifJE7k.js"
+        "assets/recorderBridge.ts-loader-DEXQG4LS.js"
       ],
       "matches": [
         "<all_urls>"
@@ -32,7 +32,7 @@
     },
     {
       "js": [
-        "assets/main.tsx-loader-C4kq_UGb.js"
+        "assets/main.tsx-loader-tDgGK93L.js"
       ],
       "matches": [
         "<all_urls>"
@@ -50,11 +50,11 @@
       ],
       "resources": [
         "src/content/recorderInjected.ts",
-        "assets/capture-B7G2CUKj.js",
-        "assets/recorderBridge.ts-CkLLSMkD.js",
+        "assets/capture-DlJzxebY.js",
+        "assets/recorderBridge.ts-4wskWMVY.js",
         "assets/jsx-runtime-D0XvMYhy.js",
         "assets/storage-Sv-J-bvU.js",
-        "assets/main.tsx-Bp73kaSH.js"
+        "assets/main.tsx-C3mwEvRr.js"
       ],
       "use_dynamic_url": false
     }

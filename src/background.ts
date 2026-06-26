@@ -16,6 +16,7 @@ import {
 import {
   CAPTURE_APPEND,
   CAPTURE_CLEAR,
+  CAPTURE_ENSURE_HOOK,
   CAPTURE_EXPORT,
   CAPTURE_GET_STATE,
   CAPTURE_START,
@@ -218,6 +219,13 @@ async function startCapture(rule: string, preferredTabId?: number): Promise<Capt
   };
 
   await Promise.all([setCaptureRule(normalizedRule), setCaptureRuntimeState(captureState), clearCaptureRecords()]);
+
+  if (typeof tabId === 'number') {
+    void chrome.tabs.sendMessage(tabId, { type: CAPTURE_ENSURE_HOOK }).catch(() => {
+      // Ignore ensure-hook failures, capture pipeline can still work on injected pages.
+    });
+  }
+
   return captureState;
 }
 
