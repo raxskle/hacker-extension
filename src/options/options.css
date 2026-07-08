@@ -182,3 +182,107 @@ button.danger {
 .hidden-domains-card .hint {
   margin: 0 0 10px;
 }
+
+.bridge-card {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid #d8e0ea;
+  border-radius: 10px;
+  background: #f8fbff;
+}
+
+.bridge-card h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.bridge-card .hint {
+  margin: 0 0 10px;
+}
+
+.native-steps {
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid #d8e3f2;
+  border-radius: 8px;
+  background: #f2f7ff;
+}
+
+.native-steps-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #304762;
+  margin-bottom: 6px;
+}
+
+.native-steps ol {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: #42566f;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.checkbox-label input {
+  width: auto;
+}
+
+.bridge-inputs {
+  display: grid;
+  gap: 10px;
+}
+
+.native-install-box {
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px dashed #b7c7db;
+  border-radius: 8px;
+  background: #f5f9ff;
+}
+
+.native-install-title {
+  font-size: 13px;
+  color: #42566f;
+  margin-bottom: 6px;
+}
+
+.native-install-command {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  color: #1d2f46;
+  background: #edf3ff;
+  border: 1px solid #d7e1f1;
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
+  word-break: break-all;
+}
+
+.native-control-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.native-status {
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.native-status.running {
+  color: #1e7a33;
+}
+
+.native-status.stopped {
+  color: #8f2d2d;
+}

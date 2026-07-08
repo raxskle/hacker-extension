@@ -1,19 +1,25 @@
 {
   "manifest_version": 3,
   "name": "Hacker Extension",
-  "version": "0.0.1",
-  "description": "外链管理神器，快速填充预设文本和外链信息。",
+  "version": "0.1.0",
+  "description": "出海助手 - 找词、找站、数据、外链一站式解决方案",
   "action": {
-    "default_title": "Hacker Extension"
+    "default_title": "Hacker Extension",
+    "default_popup": "popup.html"
   },
   "permissions": [
     "storage",
     "unlimitedStorage",
-    "downloads"
+    "downloads",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "<all_urls>",
-    "https://api.notion.com/*"
+    "https://api.notion.com/*",
+    "https://sim.3ue.co/*",
+    "https://sem.3ue.co/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
   ],
   "options_page": "options.html",
   "background": {
@@ -23,7 +29,7 @@
   "content_scripts": [
     {
       "js": [
-        "assets/recorderBridge.ts-loader-CyllNq5q.js"
+        "assets/recorderBridge.ts-loader-B8fSp0A6.js"
       ],
       "matches": [
         "<all_urls>"
@@ -33,7 +39,7 @@
     },
     {
       "js": [
-        "assets/recorderInjected.ts-BXyPAaDp.js"
+        "assets/recorderInjected.ts-BI9MNVNM.js"
       ],
       "matches": [
         "<all_urls>"
@@ -44,7 +50,30 @@
     },
     {
       "js": [
-        "assets/main.tsx-loader-DCg59Bc_.js"
+        "assets/simProxyBridge.ts-loader-dSRbZuHJ.js"
+      ],
+      "matches": [
+        "https://sim.3ue.co/*",
+        "https://sem.3ue.co/*"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "js": [
+        "assets/simProxyInjected.ts-loader-CR9fDPjC.js"
+      ],
+      "matches": [
+        "https://sim.3ue.co/*",
+        "https://sem.3ue.co/*"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    },
+    {
+      "js": [
+        "assets/main.tsx-loader-CNaugAUB.js"
       ],
       "matches": [
         "<all_urls>"
@@ -61,12 +90,24 @@
         "<all_urls>"
       ],
       "resources": [
-        "assets/capture-DH_tnSBr.js",
-        "assets/recorderBridge.ts-D-4gjh8m.js",
-        "assets/recorderInjected.ts-BXyPAaDp.js",
+        "assets/capture-BsYPYRW5.js",
+        "assets/recorderBridge.ts-BC8ms8l3.js",
+        "assets/recorderInjected.ts-BI9MNVNM.js",
         "assets/jsx-runtime-D0XvMYhy.js",
-        "assets/storage-2OXClUq6.js",
-        "assets/main.tsx-BhZHomc1.js"
+        "assets/storage-DOpb9BAS.js",
+        "assets/main.tsx-Dt-cLQs3.js"
+      ],
+      "use_dynamic_url": false
+    },
+    {
+      "matches": [
+        "https://sem.3ue.co/*",
+        "https://sim.3ue.co/*"
+      ],
+      "resources": [
+        "assets/simProxy-PKUfKNHf.js",
+        "assets/simProxyBridge.ts-DCCAFRbZ.js",
+        "assets/simProxyInjected.ts-BXI1P6Lw.js"
       ],
       "use_dynamic_url": false
     }

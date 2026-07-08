@@ -38,12 +38,13 @@ import {
   getNotionConfig,
   getNotionSyncState,
   getPanelEnabled,
+  getSimProxyBridgeConfig,
   setCaptureRecords,
+  setSimProxyBridgeConfig,
   setCaptureRule,
   setCaptureRuntimeState,
   setNotionCache,
   setNotionSyncState,
-  setPanelEnabled,
 } from './shared/storage';
 import {
   DEFAULT_CAPTURE_RUNTIME_STATE,
@@ -51,7 +52,31 @@ import {
   type CaptureRecord,
   type CaptureRecordSummary,
   type CaptureRuntimeState,
+  type SimProxyBridgeConfig,
 } from './shared/types';
+import {
+  SIM_PROXY_EXECUTE,
+  SIM_PROXY_RESULT,
+  createSimProxyFailure,
+  type SimProxyBackgroundRequest,
+  type SimProxyBackgroundResponse,
+  type SimProxyExecutePayload,
+  type SimProxyResultPayload,
+} from './shared/simProxy';
+import {
+  NATIVE_HOST_NAME,
+  NATIVE_HOST_START,
+  NATIVE_HOST_STATUS,
+  NATIVE_HOST_STOP,
+  createNativeHostFailure,
+  type NativeHostAction,
+  type NativeHostBackgroundRequest,
+  type NativeHostBackgroundResponse,
+  type NativeHostControlRequest,
+  type NativeHostControlResponse,
+  type NativeHostFailureError,
+  type NativeHostState,
+} from './shared/nativeHost';
 
 let notionSyncInFlight: Promise<NotionCachePayload> | null = null;
 let captureState: CaptureRuntimeState = DEFAULT_CAPTURE_RUNTIME_STATE;
@@ -61,10 +86,498 @@ let captureMatcher: CaptureMatcher | null = null;
 const MAX_CAPTURE_RECORDS = 400;
 const MAX_CAPTURE_TOTAL_CHARS = 4_000_000;
 
+const SIM_PROXY_DEFAULT_ALLOWED_ORIGIN = 'https://sim.3ue.co';
+const SIM_PROXY_ALLOWED_ORIGINS = new Set(['https://sim.3ue.co', 'https://sem.3ue.co']);
+const SIM_PROXY_POLL_MAX_WAIT_MS = 25_000;
+const SIM_PROXY_POLL_REQUEST_TIMEOUT_MS = 30_000;
+const SIM_PROXY_RESULT_TIMEOUT_BUFFER_MS = 20_000;
+const SIM_PROXY_RESULT_POST_TIMEOUT_MS = 15_000;
+const SIM_PROXY_RETRY_DELAY_MS = 2_000;
+const SIM_PROXY_MIN_TIMEOUT_MS = 1_000;
+const SIM_PROXY_DEFAULT_TIMEOUT_MS = 45_000;
+const SIM_PROXY_MAX_TIMEOUT_MS = 180_000;
+const SIM_PROXY_ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
+const DEFAULT_SIM_PROXY_BASE_URL = 'http://127.0.0.1:17311';
+const DEFAULT_SIM_PROXY_PORT = 17311;
+
+function isNativeHostControlResponse(value: unknown): value is NativeHostControlResponse {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const response = value as Partial<NativeHostControlResponse>;
+  if (response.ok === true) {
+    const data = (response as { data?: unknown }).data;
+    if (typeof data !== 'object' || data === null) {
+      return false;
+    }
+
+    const state = data as Partial<NativeHostState>;
+    return (
+      typeof state.running === 'boolean' &&
+      (typeof state.pid === 'number' || state.pid === null) &&
+      typeof state.baseUrl === 'string' &&
+      typeof state.token === 'string' &&
+      (typeof state.startedAt === 'number' || state.startedAt === null) &&
+      typeof state.hostName === 'string'
+    );
+  }
+
+  if (response.ok === false) {
+    const error = (response as { error?: unknown }).error;
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      typeof (error as { code?: unknown }).code === 'string' &&
+      typeof (error as { message?: unknown }).message === 'string'
+    );
+  }
+
+  return false;
+}
+
+function toNativeHostAction(command: NativeHostControlRequest): NativeHostAction {
+  if (command.command === 'start') {
+    return 'start';
+  }
+
+  if (command.command === 'stop') {
+    return 'stop';
+  }
+
+  return 'status';
+}
+
+function createNativeHostError(
+  code: NativeHostFailureError['code'],
+  message: string,
+  action: NativeHostAction,
+  rawMessage?: string,
+  hint?: string,
+): NativeHostFailureError {
+  return {
+    code,
+    message,
+    action,
+    rawMessage,
+    hint,
+  };
+}
+
+function normalizeNativeHostTransportError(rawMessage: string, action: NativeHostAction): NativeHostFailureError {
+  if (rawMessage.includes('Specified native messaging host not found')) {
+    return createNativeHostError('INSTALL_MISSING', '未找到 Native host。请先执行安装命令并重启浏览器后重试。', action, rawMessage);
+  }
+
+  if (rawMessage.includes('Native host has exited')) {
+    const maybeNodeMissing = /node(\.js)? runtime not found|env: node: No such file or directory/i.test(rawMessage);
+    if (maybeNodeMissing) {
+      return createNativeHostError(
+        'NODE_MISSING',
+        '浏览器环境未找到 Node.js。请安装 Node 后重新执行安装命令。',
+        action,
+        rawMessage,
+        '可在 options 复制并执行：npm run native:install:mac -- --extension-id=<扩展ID>',
+      );
+    }
+
+    return createNativeHostError(
+      'HOST_EXITED',
+      'Native host 进程已退出。请确认已执行安装命令后重试。',
+      action,
+      rawMessage,
+      '可在 options 复制并执行：npm run native:install:mac -- --extension-id=<扩展ID>',
+    );
+  }
+
+  if (/forbidden|permission denied|access.*forbidden/i.test(rawMessage)) {
+    return createNativeHostError('PERMISSION_OR_PATH', 'Native host 权限或路径异常，请重新安装并检查本地文件权限。', action, rawMessage);
+  }
+
+  return createNativeHostError(
+    'HOST_ERROR',
+    rawMessage ? `本地宿主调用失败：${rawMessage}` : '本地宿主调用失败',
+    action,
+    rawMessage || undefined,
+  );
+}
+
+function normalizeNativeHostRuntimeError(error: { code: string; message: string }, action: NativeHostAction): NativeHostFailureError {
+  const code = error.code;
+  if (code === 'SERVICE_STARTUP_FAILED') {
+    return createNativeHostError('SERVICE_STARTUP_FAILED', error.message || '本地服务启动失败。', action);
+  }
+
+  if (code === 'STOP_FAILED') {
+    return createNativeHostError('STOP_FAILED', error.message || '本地服务停止失败。', action);
+  }
+
+  if (code === 'STATUS_UNAVAILABLE') {
+    return createNativeHostError('STATUS_UNAVAILABLE', error.message || '本地服务状态不可用。', action);
+  }
+
+  if (code === 'SERVICE_PATH_MISSING') {
+    return createNativeHostError('SERVICE_PATH_MISSING', error.message || '本地服务脚本不存在，请重新安装。', action);
+  }
+
+  if (code === 'SERVICE_SPAWN_FAILED') {
+    return createNativeHostError('SERVICE_SPAWN_FAILED', error.message || '本地服务进程拉起失败。', action);
+  }
+
+  if (code === 'INVALID_REQUEST' || code === 'UNSUPPORTED_COMMAND') {
+    return createNativeHostError(code, error.message || '本地宿主请求无效。', action);
+  }
+
+  return createNativeHostError(code || 'HOST_ERROR', error.message || '本地宿主执行失败。', action);
+}
+
+async function requestNativeHost(command: NativeHostControlRequest): Promise<NativeHostState> {
+  const action = toNativeHostAction(command);
+  let response: unknown;
+
+  try {
+    response = (await chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, command)) as unknown;
+  } catch (error) {
+    const rawMessage = error instanceof Error ? error.message : String(error ?? '');
+    throw normalizeNativeHostTransportError(rawMessage, action);
+  }
+
+  if (!isNativeHostControlResponse(response)) {
+    throw createNativeHostError('HOST_RESPONSE_INVALID', '本地宿主返回格式无效。请重试或重新安装 Native host。', action);
+  }
+
+  if (!response.ok) {
+    throw normalizeNativeHostRuntimeError(response.error, action);
+  }
+
+  return response.data;
+}
+
+async function syncSimProxyConfigFromNativeState(state: NativeHostState): Promise<void> {
+  const current = await getSimProxyBridgeConfig();
+  const next = {
+    enabled: true,
+    baseUrl: state.baseUrl.trim() || DEFAULT_SIM_PROXY_BASE_URL,
+    token: state.token.trim() || current.token,
+  } satisfies SimProxyBridgeConfig;
+
+  await setSimProxyBridgeConfig(next);
+}
+
+type SimProxyBridgeJob = {
+  id: string;
+  method: string;
+  path: string;
+  headers: Record<string, string>;
+  body: string;
+  timeoutMs: number;
+  origin: string;
+};
+
+type SimProxyPendingRequest = {
+  resolve: (payload: SimProxyResultPayload) => void;
+  reject: (error: Error) => void;
+  timeoutId: ReturnType<typeof setTimeout>;
+};
+
+const simProxyPendingRequests = new Map<string, SimProxyPendingRequest>();
+let simProxyPollLoopRunning = false;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function normalizeHeaderRecord(input: unknown): Record<string, string> {
+  if (typeof input !== 'object' || input === null) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(input as Record<string, unknown>)
+      .map(([key, value]) => [key.trim(), typeof value === 'string' ? value : String(value)] as const)
+      .filter(([key]) => key.length > 0),
+  );
+}
+
+function createBridgeHeaders(config: SimProxyBridgeConfig): Record<string, string> {
+  return {
+    'content-type': 'application/json',
+    authorization: `Bearer ${config.token}`,
+    'x-extension-id': chrome.runtime.id,
+  };
+}
+
+function isSimProxyBridgeEnabled(config: SimProxyBridgeConfig): boolean {
+  return config.baseUrl.trim().length > 0 && config.token.trim().length > 0;
+}
+
+function isSimProxyResultPayload(value: unknown): value is SimProxyResultPayload {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const payload = value as Partial<SimProxyResultPayload>;
+  return (
+    typeof payload.id === 'string' &&
+    typeof payload.status === 'number' &&
+    typeof payload.body === 'string' &&
+    typeof payload.truncated === 'boolean' &&
+    typeof payload.finalUrl === 'string' &&
+    typeof payload.error === 'string' &&
+    typeof payload.headers === 'object' &&
+    payload.headers !== null
+  );
+}
+
+function parseSimProxyBridgeJob(value: unknown): SimProxyBridgeJob | null {
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+
+  const raw = value as {
+    id?: unknown;
+    method?: unknown;
+    path?: unknown;
+    headers?: unknown;
+    body?: unknown;
+    timeoutMs?: unknown;
+    origin?: unknown;
+  };
+
+  if (typeof raw.id !== 'string' || typeof raw.method !== 'string' || typeof raw.path !== 'string') {
+    return null;
+  }
+
+  const method = raw.method.trim().toUpperCase();
+  if (!SIM_PROXY_ALLOWED_METHODS.has(method)) {
+    return null;
+  }
+
+  const origin = typeof raw.origin === 'string' ? raw.origin.trim() : SIM_PROXY_DEFAULT_ALLOWED_ORIGIN;
+  if (!SIM_PROXY_ALLOWED_ORIGINS.has(origin)) {
+    return null;
+  }
+
+  const timeoutMs = Number.isFinite(raw.timeoutMs)
+    ? Math.max(SIM_PROXY_MIN_TIMEOUT_MS, Math.min(SIM_PROXY_MAX_TIMEOUT_MS, Math.round(raw.timeoutMs as number)))
+    : SIM_PROXY_DEFAULT_TIMEOUT_MS;
+
+  return {
+    id: raw.id,
+    method,
+    path: raw.path,
+    headers: normalizeHeaderRecord(raw.headers),
+    body: typeof raw.body === 'string' ? raw.body : raw.body == null ? '' : String(raw.body),
+    timeoutMs,
+    origin,
+  };
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function resolveSimProxyTabId(origin: string): Promise<number | null> {
+  if (!SIM_PROXY_ALLOWED_ORIGINS.has(origin)) {
+    return null;
+  }
+
+  const urlPattern = [`${origin}/*`];
+  const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true, url: urlPattern });
+  const activeTab = activeTabs.find((tab) => typeof tab.id === 'number');
+  if (activeTab?.id != null) {
+    return activeTab.id;
+  }
+
+  const fallbackTabs = await chrome.tabs.query({ url: urlPattern });
+  const fallbackTab = fallbackTabs.find((tab) => typeof tab.id === 'number');
+  return fallbackTab?.id ?? null;
+}
+
+function getSimProxyResultTimeoutMs(timeoutMs: number): number {
+  const normalizedTimeoutMs = Math.max(
+    SIM_PROXY_MIN_TIMEOUT_MS,
+    Math.min(SIM_PROXY_MAX_TIMEOUT_MS, Math.round(timeoutMs)),
+  );
+  return normalizedTimeoutMs + SIM_PROXY_RESULT_TIMEOUT_BUFFER_MS;
+}
+
+function createPendingResultPromise(requestId: string, timeoutMs: number): Promise<SimProxyResultPayload> {
+  return new Promise<SimProxyResultPayload>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      simProxyPendingRequests.delete(requestId);
+      reject(new Error('等待页面响应超时'));
+    }, getSimProxyResultTimeoutMs(timeoutMs));
+
+    simProxyPendingRequests.set(requestId, { resolve, reject, timeoutId });
+  });
+}
+
+function resolvePendingSimProxyResult(payload: SimProxyResultPayload): boolean {
+  const pending = simProxyPendingRequests.get(payload.id);
+  if (!pending) {
+    return false;
+  }
+
+  clearTimeout(pending.timeoutId);
+  simProxyPendingRequests.delete(payload.id);
+  pending.resolve(payload);
+  return true;
+}
+
+function rejectPendingSimProxyResult(requestId: string, message: string): void {
+  const pending = simProxyPendingRequests.get(requestId);
+  if (!pending) {
+    return;
+  }
+
+  clearTimeout(pending.timeoutId);
+  simProxyPendingRequests.delete(requestId);
+  pending.reject(new Error(message));
+}
+
+async function executeSimProxyJob(job: SimProxyBridgeJob): Promise<SimProxyResultPayload> {
+  const tabId = await resolveSimProxyTabId(job.origin);
+  if (tabId == null) {
+    throw new Error(`未找到已打开的 ${job.origin} 页面，请先打开并登录。`);
+  }
+
+  const payload: SimProxyExecutePayload = {
+    id: job.id,
+    method: job.method,
+    path: job.path,
+    headers: job.headers,
+    body: job.body,
+    timeoutMs: job.timeoutMs,
+    origin: job.origin,
+  };
+
+  const waitResult = createPendingResultPromise(job.id, job.timeoutMs);
+
+  try {
+    await chrome.tabs.sendMessage(tabId, {
+      type: SIM_PROXY_EXECUTE,
+      payload,
+    } satisfies SimProxyBackgroundRequest);
+  } catch (error) {
+    rejectPendingSimProxyResult(job.id, '发送执行请求到目标站点页面失败，请刷新页面后重试。');
+    throw error;
+  }
+
+  return waitResult;
+}
+
+async function postSimProxyBridgeResult(
+  config: SimProxyBridgeConfig,
+  jobId: string,
+  result:
+    | { ok: true; payload: SimProxyResultPayload }
+    | {
+        ok: false;
+        error: string;
+      },
+): Promise<void> {
+  await fetchWithTimeout(
+    `${config.baseUrl}/v1/extension/result`,
+    {
+      method: 'POST',
+      headers: createBridgeHeaders(config),
+      body: JSON.stringify({
+        id: jobId,
+        ...result,
+      }),
+    },
+    SIM_PROXY_RESULT_POST_TIMEOUT_MS,
+  );
+}
+
+async function pollSimProxyBridgeJob(config: SimProxyBridgeConfig): Promise<SimProxyBridgeJob | null> {
+  const response = await fetchWithTimeout(
+    `${config.baseUrl}/v1/extension/poll`,
+    {
+      method: 'POST',
+      headers: createBridgeHeaders(config),
+      body: JSON.stringify({
+        maxWaitMs: SIM_PROXY_POLL_MAX_WAIT_MS,
+      }),
+    },
+    SIM_PROXY_POLL_REQUEST_TIMEOUT_MS,
+  );
+
+  if (response.status === 204) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(`本地服务轮询失败：${response.status}`);
+  }
+
+  const json = (await response.json()) as unknown;
+  const parsed = parseSimProxyBridgeJob(json);
+  if (!parsed) {
+    throw new Error('本地服务返回了无效任务');
+  }
+
+  return parsed;
+}
+
+async function runSimProxyPollLoop(): Promise<void> {
+  if (simProxyPollLoopRunning) {
+    return;
+  }
+
+  simProxyPollLoopRunning = true;
+
+  while (simProxyPollLoopRunning) {
+    const config = await getSimProxyBridgeConfig();
+    if (!isSimProxyBridgeEnabled(config)) {
+      await sleep(SIM_PROXY_RETRY_DELAY_MS);
+      continue;
+    }
+
+    try {
+      const job = await pollSimProxyBridgeJob(config);
+      if (!job) {
+        continue;
+      }
+
+      try {
+        const payload = await executeSimProxyJob(job);
+        await postSimProxyBridgeResult(config, job.id, { ok: true, payload });
+      } catch (error) {
+        await postSimProxyBridgeResult(config, job.id, {
+          ok: false,
+          error: error instanceof Error ? error.message : '本地接口代理执行失败',
+        });
+      }
+    } catch {
+      await sleep(SIM_PROXY_RETRY_DELAY_MS);
+    }
+  }
+}
+
+function ensureSimProxyPolling(): void {
+  void runSimProxyPollLoop();
+}
+
 async function syncActionState(enabled: boolean) {
   await chrome.action.setBadgeText({ text: enabled ? 'ON' : 'OFF' });
   await chrome.action.setBadgeBackgroundColor({ color: enabled ? '#1e8e3e' : '#8b1e1e' });
-  await chrome.action.setTitle({ title: enabled ? '点击关闭浮窗' : '点击开启浮窗' });
+  await chrome.action.setTitle({ title: enabled ? '浮窗：已开启' : '浮窗：已关闭' });
 }
 
 async function syncActionStateFromStorage() {
@@ -550,15 +1063,20 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
   void syncActionStateFromStorage();
   void syncCaptureStateFromStorage();
+  ensureSimProxyPolling();
 });
 
-chrome.action.onClicked.addListener(() => {
-  void (async () => {
-    const enabled = await getPanelEnabled();
-    const nextEnabled = !enabled;
-    await setPanelEnabled(nextEnabled);
-    await syncActionState(nextEnabled);
-  })();
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local' || !('panelEnabled' in changes)) {
+    return;
+  }
+
+  const next = changes.panelEnabled?.newValue;
+  if (typeof next !== 'boolean') {
+    return;
+  }
+
+  void syncActionState(next);
 });
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
@@ -585,7 +1103,10 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
     type === CAPTURE_EXPORT ||
     type === CAPTURE_APPEND;
 
-  if (!isNotionRequest && !isCaptureRequest) {
+  const isSimProxyRequest = type === SIM_PROXY_EXECUTE || type === SIM_PROXY_RESULT;
+  const isNativeHostRequest = type === NATIVE_HOST_STATUS || type === NATIVE_HOST_START || type === NATIVE_HOST_STOP;
+
+  if (!isNotionRequest && !isCaptureRequest && !isSimProxyRequest && !isNativeHostRequest) {
     return undefined;
   }
 
@@ -608,6 +1129,98 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
 
         const response: NotionBackgroundResponse = { ok: true, data };
         sendResponse(response);
+        return;
+      }
+
+      if (isNativeHostRequest) {
+        const request = message as Partial<NativeHostBackgroundRequest>;
+
+        let command: NativeHostControlRequest;
+        if (request.type === NATIVE_HOST_START) {
+          const config = await getSimProxyBridgeConfig();
+          const requestToken = typeof request.token === 'string' ? request.token.trim() : '';
+          const token = requestToken || config.token.trim();
+          command = {
+            command: 'start',
+            port: DEFAULT_SIM_PROXY_PORT,
+            token,
+          };
+        } else if (request.type === NATIVE_HOST_STOP) {
+          command = { command: 'stop' };
+        } else {
+          command = { command: 'status' };
+        }
+
+        const state = await requestNativeHost(command);
+
+        if (request.type === NATIVE_HOST_START) {
+          const checkedState = await requestNativeHost({ command: 'status' });
+          if (!checkedState.running) {
+            throw createNativeHostError(
+              'SERVICE_STARTUP_FAILED',
+              '本地服务启动后未保持运行，请检查端口占用或查看日志。',
+              'start',
+              undefined,
+              '日志文件：~/.hacker-extension-native/bridge.log',
+            );
+          }
+
+          await syncSimProxyConfigFromNativeState(checkedState);
+          ensureSimProxyPolling();
+
+          const response: NativeHostBackgroundResponse = {
+            ok: true,
+            data: { state: checkedState },
+          };
+          sendResponse(response);
+          return;
+        }
+
+        if (request.type === NATIVE_HOST_STOP) {
+          const checkedState = await requestNativeHost({ command: 'status' });
+          if (checkedState.running) {
+            throw createNativeHostError(
+              'STOP_FAILED',
+              '停止后本地服务仍在运行，请重试或手动结束进程。',
+              'stop',
+            );
+          }
+
+          const response: NativeHostBackgroundResponse = {
+            ok: true,
+            data: { state: checkedState },
+          };
+          sendResponse(response);
+          return;
+        }
+
+        const response: NativeHostBackgroundResponse = {
+          ok: true,
+          data: { state },
+        };
+        sendResponse(response);
+        return;
+      }
+
+      if (isSimProxyRequest) {
+        const request = message as Partial<SimProxyBackgroundRequest>;
+
+        if (request.type === SIM_PROXY_RESULT) {
+          const payload = request.payload;
+          if (!payload || !isSimProxyResultPayload(payload)) {
+            throw new Error('本地接口代理响应数据无效');
+          }
+
+          resolvePendingSimProxyResult(payload);
+          const response: SimProxyBackgroundResponse<{ accepted: boolean }> = {
+            ok: true,
+            data: { accepted: true },
+          };
+          sendResponse(response);
+          return;
+        }
+
+        sendResponse(createSimProxyFailure('本地接口代理消息类型无效'));
         return;
       }
 
@@ -653,6 +1266,13 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
     } catch (error) {
       if (isNotionRequest) {
         sendResponse(createNotionFailure(error));
+      } else if (isNativeHostRequest) {
+        const request = message as Partial<NativeHostBackgroundRequest>;
+        const action: NativeHostAction =
+          request.type === NATIVE_HOST_START ? 'start' : request.type === NATIVE_HOST_STOP ? 'stop' : 'status';
+        sendResponse(createNativeHostFailure(error, action));
+      } else if (isSimProxyRequest) {
+        sendResponse(createSimProxyFailure(error));
       } else {
         sendResponse(createCaptureFailure(error));
       }
@@ -664,3 +1284,4 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
 
 void syncActionStateFromStorage();
 void syncCaptureStateFromStorage();
+ensureSimProxyPolling();

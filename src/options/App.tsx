@@ -3,16 +3,28 @@ import { extractHostname } from '../shared/notion';
 import {
   getPanelHiddenDomains,
   getPresetGroupStore,
+  getSimProxyBridgeConfig,
   setPanelHiddenDomains,
   setPresetGroupStore,
+  setSimProxyBridgeConfig,
 } from '../shared/storage';
 import {
   DEFAULT_PRESET_GROUP_STORE,
   DEFAULT_PRESET_ITEMS,
+  DEFAULT_SIM_PROXY_BRIDGE_CONFIG,
   type PresetGroup,
   type PresetGroupStore,
   type PresetItem,
+  type SimProxyBridgeConfig,
 } from '../shared/types';
+import {
+  parseNativeHostError,
+  requestNativeHostStart,
+  requestNativeHostStatus,
+  requestNativeHostStop,
+  type NativeHostAction,
+  type NativeHostState,
+} from '../shared/nativeHost';
 
 function cloneItems(items: PresetItem[]): PresetItem[] {
   return items.map((item) => ({ ...item }));
@@ -73,24 +85,100 @@ function findActiveGroup(store: PresetGroupStore): PresetGroup | null {
   return store.groups.find((group) => group.id === store.activeGroupId) ?? store.groups[0] ?? null;
 }
 
+function formatNativeHostStatus(state: NativeHostState | null): string {
+  if (!state) {
+    return '未检查';
+  }
+
+  return state.running ? `运行中（PID: ${state.pid ?? '-'}）` : '未运行';
+}
+
+function getNativeHostActionLabel(action: NativeHostAction): string {
+  if (action === 'start') {
+    return '启动';
+  }
+
+  if (action === 'stop') {
+    return '停止';
+  }
+
+  return '检查状态';
+}
+
+function formatNativeHostActionError(action: NativeHostAction, error: unknown): string {
+  const parsed = parseNativeHostError(error, action);
+  const label = getNativeHostActionLabel(parsed.action);
+
+  const suggestionByCode: Record<string, string> = {
+    INSTALL_MISSING: '请先复制并执行安装命令，然后重启浏览器再重试。',
+    NODE_MISSING: '请先安装 Node.js，再重新执行安装命令。',
+    HOST_EXITED: '请先执行安装命令并检查本机 Node 环境。',
+    PERMISSION_OR_PATH: '请检查本地目录权限后重新安装 Native host。',
+    SERVICE_PATH_MISSING: '请确认插件目录完整，重新安装后再试。',
+    SERVICE_SPAWN_FAILED: '请检查端口占用或系统权限后重试。',
+    SERVICE_STARTUP_FAILED: '请检查端口占用，并查看日志 ~/.hacker-extension-native/bridge.log。',
+    STATUS_UNAVAILABLE: '请重试；若持续失败，请重新安装 Native host。',
+    STOP_FAILED: '请重试停止；必要时手动结束 PID 进程。',
+    HOST_RESPONSE_INVALID: '请重新安装插件和 Native host 后重试。',
+  };
+
+  const suggestion = parsed.hint || suggestionByCode[parsed.code] || '请查看错误信息后重试。';
+  return `${label}失败（${parsed.code}）：${parsed.message} 建议：${suggestion}`;
+}
+
 export default function App() {
   const [store, setStore] = useState<PresetGroupStore>(DEFAULT_PRESET_GROUP_STORE);
   const [newGroupInput, setNewGroupInput] = useState('');
   const [hiddenDomainsInput, setHiddenDomainsInput] = useState('');
+  const [simProxyConfig, setSimProxyConfig] = useState<SimProxyBridgeConfig>(DEFAULT_SIM_PROXY_BRIDGE_CONFIG);
+  const [nativeState, setNativeState] = useState<NativeHostState | null>(null);
+  const [nativeBusy, setNativeBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
   const activeGroup = useMemo(() => findActiveGroup(store), [store]);
+  const nativeInstallCommand = useMemo(
+    () => `npm run native:install:mac -- --extension-id=${chrome.runtime.id}`,
+    [],
+  );
+
+  async function refreshNativeStatus(options?: { silent?: boolean; showNotice?: boolean }) {
+    try {
+      setNativeBusy(true);
+      const payload = await requestNativeHostStatus();
+      setNativeState(payload.state);
+      if (!options?.silent) {
+        setErrorMessage('');
+      }
+      if (options?.showNotice) {
+        showNotice(payload.state.running ? '本地服务运行中' : '本地服务未运行');
+      }
+    } catch (error) {
+      setNativeState(null);
+      if (!options?.silent) {
+        setErrorMessage(formatNativeHostActionError('status', error));
+      }
+    } finally {
+      setNativeBusy(false);
+    }
+  }
 
   useEffect(() => {
     void (async () => {
       try {
-        const [presetStore, hiddenDomains] = await Promise.all([getPresetGroupStore(), getPanelHiddenDomains()]);
+        const [presetStore, hiddenDomains, bridgeConfig] = await Promise.all([
+          getPresetGroupStore(),
+          getPanelHiddenDomains(),
+          getSimProxyBridgeConfig(),
+        ]);
         setStore(clonePresetGroupStore(presetStore));
         setHiddenDomainsInput(formatHiddenDomainsInput(hiddenDomains));
+        setSimProxyConfig(bridgeConfig);
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : '读取分组失败');
       }
+
+      await refreshNativeStatus({ silent: true });
     })();
   }, []);
 
@@ -208,13 +296,74 @@ export default function App() {
     clearMessages();
   }
 
+  function updateBridgeBaseUrl(baseUrl: string) {
+    setSimProxyConfig((prev) => ({ ...prev, baseUrl }));
+    clearMessages();
+  }
+
+  function updateBridgeToken(token: string) {
+    setSimProxyConfig((prev) => ({ ...prev, token }));
+    clearMessages();
+  }
+
+  async function copyNativeInstallCommand() {
+    try {
+      await navigator.clipboard.writeText(nativeInstallCommand);
+      showNotice('安装命令已复制');
+      setErrorMessage('');
+    } catch {
+      setErrorMessage(`请手动复制命令：${nativeInstallCommand}`);
+    }
+  }
+
+  async function startNativeHostService() {
+    try {
+      setNativeBusy(true);
+      const payload = await requestNativeHostStart(simProxyConfig.token);
+      setNativeState(payload.state);
+
+      const [latestBridgeConfig] = await Promise.all([getSimProxyBridgeConfig()]);
+      setSimProxyConfig(latestBridgeConfig);
+
+      setErrorMessage('');
+      showNotice(payload.state.running ? `本地服务运行中（PID: ${payload.state.pid ?? '-'}）` : '本地服务启动请求已发送');
+    } catch (error) {
+      setErrorMessage(formatNativeHostActionError('start', error));
+    } finally {
+      setNativeBusy(false);
+    }
+  }
+
+  async function stopNativeHostService() {
+    try {
+      setNativeBusy(true);
+      const payload = await requestNativeHostStop();
+      setNativeState(payload.state);
+      setErrorMessage('');
+      showNotice('本地服务已停止');
+    } catch (error) {
+      setErrorMessage(formatNativeHostActionError('stop', error));
+    } finally {
+      setNativeBusy(false);
+    }
+  }
+
   async function save() {
     try {
       const parsedHiddenDomains = parseHiddenDomainsInput(hiddenDomainsInput);
-      await Promise.all([setPresetGroupStore(store), setPanelHiddenDomains(parsedHiddenDomains)]);
-      const [latestStore, latestHiddenDomains] = await Promise.all([getPresetGroupStore(), getPanelHiddenDomains()]);
+      await Promise.all([
+        setPresetGroupStore(store),
+        setPanelHiddenDomains(parsedHiddenDomains),
+        setSimProxyBridgeConfig({ ...simProxyConfig, enabled: true }),
+      ]);
+      const [latestStore, latestHiddenDomains, latestBridgeConfig] = await Promise.all([
+        getPresetGroupStore(),
+        getPanelHiddenDomains(),
+        getSimProxyBridgeConfig(),
+      ]);
       setStore(clonePresetGroupStore(latestStore));
       setHiddenDomainsInput(formatHiddenDomainsInput(latestHiddenDomains));
+      setSimProxyConfig(latestBridgeConfig);
       setErrorMessage('');
       showNotice('已保存');
     } catch (error) {
@@ -297,6 +446,61 @@ export default function App() {
             placeholder={'example.com\nhttps://sub.example.org/path'}
             rows={6}
           />
+        </section>
+
+        <section className="bridge-card">
+          <h2>本地接口代理</h2>
+          <p className="hint">用于把目标站点（sim.3ue.co）的登录态请求转发到本地服务供 Claude 调用。</p>
+
+          <div className="native-steps">
+            <div className="native-steps-title">使用步骤</div>
+            <ol>
+              <li>先点击“复制安装命令”，在终端执行一次安装（仅首次）。</li>
+              <li>填写并保存 BRIDGE_TOKEN（建议使用强随机字符串）。</li>
+              <li>点击“启动本地服务”，再点击“检查状态”确认运行中。</li>
+              <li>浏览器打开并登录 https://sim.3ue.co。</li>
+              <li>调用本地接口：/sim/api/websiteOrganicLandingPagesV2 或 /sim/api/websiteOrganicLandingPagesV2/GetTableDrillDown。</li>
+            </ol>
+          </div>
+
+          <div className="native-install-box">
+            <div className="native-install-title">首次使用（只需一次）</div>
+            <div className="native-install-command">{nativeInstallCommand}</div>
+            <button type="button" onClick={() => void copyNativeInstallCommand()}>
+              复制安装命令
+            </button>
+          </div>
+
+          <div className="native-control-row">
+            <button type="button" className="primary" disabled={nativeBusy} onClick={() => void startNativeHostService()}>
+              启动本地服务
+            </button>
+            <button type="button" disabled={nativeBusy} onClick={() => void refreshNativeStatus({ showNotice: true })}>
+              检查状态
+            </button>
+            <button type="button" className="danger" disabled={nativeBusy} onClick={() => void stopNativeHostService()}>
+              停止服务
+            </button>
+          </div>
+
+          <div className={`native-status ${nativeState?.running ? 'running' : 'stopped'}`}>
+            本地服务状态：{formatNativeHostStatus(nativeState)}
+          </div>
+
+          <p className="hint">本地服务启动后将自动连接代理链路，无需手动开关。</p>
+
+          <div className="bridge-inputs">
+            <input
+              value={simProxyConfig.baseUrl}
+              onChange={(event) => updateBridgeBaseUrl(event.target.value)}
+              placeholder="本地服务地址，例如 http://127.0.0.1:17311"
+            />
+            <input
+              value={simProxyConfig.token}
+              onChange={(event) => updateBridgeToken(event.target.value)}
+              placeholder="BRIDGE_TOKEN（与本地服务一致）"
+            />
+          </div>
         </section>
 
         <div className="actions">

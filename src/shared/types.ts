@@ -122,6 +122,12 @@ export type CaptureRuntimeState = {
   recent: CaptureRecordSummary[];
 };
 
+export type SimProxyBridgeConfig = {
+  enabled: boolean;
+  baseUrl: string;
+  token: string;
+};
+
 export const DEFAULT_CAPTURE_RUNTIME_STATE: CaptureRuntimeState = {
   isRecording: false,
   rule: '',
@@ -141,6 +147,12 @@ export const DEFAULT_NOTION_SYNC_STATE: NotionSyncState = {
   lastAttemptAt: null,
   lastSuccessAt: null,
   lastError: '',
+};
+
+export const DEFAULT_SIM_PROXY_BRIDGE_CONFIG: SimProxyBridgeConfig = {
+  enabled: false,
+  baseUrl: 'http://127.0.0.1:17311',
+  token: '',
 };
 
 export const DEFAULT_PRESET_GROUP_STORE: PresetGroupStore = {
@@ -163,6 +175,7 @@ export const STORAGE_KEYS = {
   captureRule: 'captureRule',
   captureRuntimeState: 'captureRuntimeState',
   captureRecords: 'captureRecords',
+  simProxyBridgeConfig: 'simProxyBridgeConfig',
 } as const;
 
 export const DEFAULT_PRESET_ITEMS: PresetItem[] = [

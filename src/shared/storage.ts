@@ -3,6 +3,7 @@ import {
   DEFAULT_NOTION_SYNC_STATE,
   DEFAULT_PRESET_GROUP_STORE,
   DEFAULT_PRESET_ITEMS,
+  DEFAULT_SIM_PROXY_BRIDGE_CONFIG,
   STORAGE_KEYS,
   type CaptureRecord,
   type CaptureRecordSummary,
@@ -17,7 +18,9 @@ import {
   type PresetGroup,
   type PresetGroupStore,
   type PresetItem,
-} from './types';import { extractHostname } from './notion';
+  type SimProxyBridgeConfig,
+} from './types';
+import { extractHostname } from './notion';
 
 function normalizePresetItems(input: unknown): PresetItem[] {
   if (!Array.isArray(input)) return [];
@@ -623,4 +626,48 @@ export async function getPanelPosition(): Promise<PanelPosition | null> {
 
 export async function setPanelPosition(position: PanelPosition): Promise<void> {
   await chrome.storage.local.set({ [STORAGE_KEYS.panelPosition]: position });
+}
+
+function normalizeSimProxyBridgeConfig(input: unknown): SimProxyBridgeConfig {
+  if (typeof input !== 'object' || input === null) {
+    return DEFAULT_SIM_PROXY_BRIDGE_CONFIG;
+  }
+
+  const raw = input as Partial<SimProxyBridgeConfig>;
+  const baseUrlRaw = typeof raw.baseUrl === 'string' ? raw.baseUrl.trim() : '';
+  let baseUrl = DEFAULT_SIM_PROXY_BRIDGE_CONFIG.baseUrl;
+
+  if (baseUrlRaw) {
+    try {
+      const parsed = new URL(baseUrlRaw);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        baseUrl = parsed.origin;
+      }
+    } catch {
+      // keep default
+    }
+  }
+
+  return {
+    enabled: typeof raw.enabled === 'boolean' ? raw.enabled : DEFAULT_SIM_PROXY_BRIDGE_CONFIG.enabled,
+    baseUrl,
+    token: typeof raw.token === 'string' ? raw.token.trim() : '',
+  };
+}
+
+export async function getSimProxyBridgeConfig(): Promise<SimProxyBridgeConfig> {
+  const data = await chrome.storage.local.get(STORAGE_KEYS.simProxyBridgeConfig);
+  const value = normalizeSimProxyBridgeConfig(data[STORAGE_KEYS.simProxyBridgeConfig]);
+
+  if (typeof data[STORAGE_KEYS.simProxyBridgeConfig] !== 'object' || data[STORAGE_KEYS.simProxyBridgeConfig] === null) {
+    await chrome.storage.local.set({ [STORAGE_KEYS.simProxyBridgeConfig]: value });
+  }
+
+  return value;
+}
+
+export async function setSimProxyBridgeConfig(config: SimProxyBridgeConfig): Promise<void> {
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.simProxyBridgeConfig]: normalizeSimProxyBridgeConfig(config),
+  });
 }
