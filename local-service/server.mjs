@@ -18,11 +18,22 @@ const ALLOWED_TARGET_ORIGINS = new Set([SIM_TARGET_ORIGIN, 'https://sem.3ue.co']
 
 const TARGET_ENDPOINT_PATH = '/api/websiteOrganicLandingPagesV2';
 const TARGET_DRILLDOWN_ENDPOINT_PATH = '/api/websiteOrganicLandingPagesV2/GetTableDrillDown';
+const TARGET_KEYWORD_SUGGEST_ENDPOINT_PATH = '/api/KeywordGenerator/google/suggest';
+const TARGET_SEM_WEBAPI_PATH = '/kmtgw/v2/webapi';
 
 const SIM_TARGET_PUBLIC_ENDPOINT = `/sim${TARGET_ENDPOINT_PATH}`;
 const SIM_TARGET_DRILLDOWN_PUBLIC_ENDPOINT = `/sim${TARGET_DRILLDOWN_ENDPOINT_PATH}`;
+const SIM_TARGET_KEYWORD_SUGGEST_PUBLIC_ENDPOINT = `/sim${TARGET_KEYWORD_SUGGEST_ENDPOINT_PATH}`;
+const SEM_IDEAS_GET_KEYWORDS_PUBLIC_ENDPOINT = `/sem${TARGET_SEM_WEBAPI_PATH}/ideas.GetKeywords`;
+const SEM_IDEAS_GET_KEYWORDS_SUMMARY_PUBLIC_ENDPOINT = `/sem${TARGET_SEM_WEBAPI_PATH}/ideas.GetKeywordsSummary`;
 
-const EXPOSED_TARGET_ENDPOINTS = [SIM_TARGET_PUBLIC_ENDPOINT, SIM_TARGET_DRILLDOWN_PUBLIC_ENDPOINT];
+const EXPOSED_TARGET_ENDPOINTS = [
+  SIM_TARGET_PUBLIC_ENDPOINT,
+  SIM_TARGET_DRILLDOWN_PUBLIC_ENDPOINT,
+  SIM_TARGET_KEYWORD_SUGGEST_PUBLIC_ENDPOINT,
+  SEM_IDEAS_GET_KEYWORDS_PUBLIC_ENDPOINT,
+  SEM_IDEAS_GET_KEYWORDS_SUMMARY_PUBLIC_ENDPOINT,
+];
 
 /** @type {Array<{id: string, method: string, path: string, headers: Record<string,string>, body: string, timeoutMs: number, origin: string}>} */
 const jobQueue = [];
@@ -381,6 +392,126 @@ function createLandingPagesKeywordDrillDownPath(paramsInput) {
   };
 }
 
+function createKeywordGeneratorSuggestPath(paramsInput) {
+  const keyword = normalizeNonEmptyString(paramsInput?.keyword, '');
+  if (!keyword) {
+    throw new Error('keyword 必填，例如 image to text');
+  }
+
+  const country = normalizeNonEmptyString(paramsInput?.country, '999');
+  const latest = normalizeNonEmptyString(paramsInput?.latest, '28d');
+  const websource = normalizeNonEmptyString(paramsInput?.websource ?? paramsInput?.webSource, 'Total');
+  const sort = normalizeNonEmptyString(paramsInput?.sort, 'windowVolume');
+  const type = normalizeNonEmptyString(paramsInput?.type, 'Broad');
+  const rangeFilter = normalizeNonEmptyString(paramsInput?.rangeFilter, '');
+  const asc = normalizeBoolean(paramsInput?.asc, false);
+  const isWindow = normalizeBoolean(paramsInput?.isWindow, true);
+  const rowsPerPage = clamp(paramsInput?.rowsPerPage, 1, 500, 100);
+
+  const from = normalizeDateBucket(paramsInput?.from);
+  const to = normalizeDateBucket(paramsInput?.to);
+
+  const query = new URLSearchParams();
+  query.set('keyword', keyword);
+  query.set('country', country);
+  if (from) {
+    query.set('from', from);
+  }
+  if (to) {
+    query.set('to', to);
+  }
+  query.set('isWindow', String(isWindow));
+  query.set('websource', websource);
+  query.set('sort', sort);
+  query.set('asc', String(asc));
+  if (rangeFilter) {
+    query.set('rangeFilter', rangeFilter);
+  }
+  query.set('rowsPerPage', String(rowsPerPage));
+  query.set('type', type);
+  query.set('latest', latest);
+
+  const xSwPage =
+    'https://pro.similarweb.com/#/digitalsuite/acquisition/findkeywords/keyword-generator-tool/' +
+    `${country}/${latest}?searchEngine=google&keyword=${encodeURIComponent(keyword)}` +
+    `&webSource=${encodeURIComponent(websource)}&isWWW=*&tab=phraseMatch`;
+
+  return {
+    path: `${TARGET_KEYWORD_SUGGEST_ENDPOINT_PATH}?${query.toString()}`,
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json; charset=utf-8',
+      'x-requested-with': 'XMLHttpRequest',
+      'x-sw-page': xSwPage,
+      'x-sw-page-view-id': randomUUID(),
+    },
+    requestBody: '[]',
+  };
+}
+
+function parseSemWebapiRequestBody(paramsInput, expectedMethod) {
+  const gmitm = normalizeNonEmptyString(paramsInput?.__gmitm ?? paramsInput?.gmitm, '');
+  if (!gmitm) {
+    throw new Error('__gmitm 必填');
+  }
+
+  const rawRequestBody = paramsInput?.requestBody;
+  let requestBody = rawRequestBody;
+
+  if (typeof rawRequestBody === 'string') {
+    try {
+      requestBody = JSON.parse(rawRequestBody);
+    } catch {
+      throw new Error('requestBody 不是合法 JSON');
+    }
+  }
+
+  if (!requestBody || typeof requestBody !== 'object' || Array.isArray(requestBody)) {
+    throw new Error('requestBody 必须是 JSON 对象');
+  }
+
+  const rpcMethod = typeof requestBody.method === 'string' ? requestBody.method.trim() : '';
+  if (rpcMethod !== expectedMethod) {
+    throw new Error(`requestBody.method 必须为 ${expectedMethod}`);
+  }
+
+  if ('jsonrpc' in requestBody && requestBody.jsonrpc !== '2.0') {
+    throw new Error('requestBody.jsonrpc 必须为 2.0');
+  }
+
+  const query = new URLSearchParams();
+  query.set('__gmitm', gmitm);
+
+  return {
+    path: `${TARGET_SEM_WEBAPI_PATH}?${query.toString()}`,
+    requestBody: JSON.stringify(requestBody),
+  };
+}
+
+function createSemIdeasGetKeywordsPath(paramsInput) {
+  const parsed = parseSemWebapiRequestBody(paramsInput, 'ideas.GetKeywords');
+  return {
+    path: parsed.path,
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json; charset=utf-8',
+    },
+    requestBody: parsed.requestBody,
+  };
+}
+
+function createSemIdeasGetKeywordsSummaryPath(paramsInput) {
+  const parsed = parseSemWebapiRequestBody(paramsInput, 'ideas.GetKeywordsSummary');
+  return {
+    path: parsed.path,
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json; charset=utf-8',
+    },
+    requestBody: parsed.requestBody,
+  };
+}
+
 function handleHealth(_req, res) {
   sendJson(res, 200, {
     ok: true,
@@ -494,7 +625,14 @@ async function handleBridgeQueryRequest(req, res, options = {}) {
     method,
     path: queryConfig.path,
     headers: normalizeHeaders(queryConfig.headers),
-    body: method === 'GET' ? '' : typeof body?.requestBody === 'string' ? body.requestBody : '',
+    body:
+      method === 'GET'
+        ? ''
+        : typeof body?.requestBody === 'string'
+          ? body.requestBody
+          : typeof queryConfig.requestBody === 'string'
+            ? queryConfig.requestBody
+            : '',
     timeoutMs,
     origin,
   };
@@ -515,6 +653,30 @@ async function handleLandingPagesKeywordDrillDownRequest(req, res, options = {})
     ...options,
     method: 'GET',
     buildQuery: createLandingPagesKeywordDrillDownPath,
+  });
+}
+
+async function handleKeywordGeneratorSuggestRequest(req, res, options = {}) {
+  await handleBridgeQueryRequest(req, res, {
+    ...options,
+    method: 'POST',
+    buildQuery: createKeywordGeneratorSuggestPath,
+  });
+}
+
+async function handleSemIdeasGetKeywordsRequest(req, res, options = {}) {
+  await handleBridgeQueryRequest(req, res, {
+    ...options,
+    method: 'POST',
+    buildQuery: createSemIdeasGetKeywordsPath,
+  });
+}
+
+async function handleSemIdeasGetKeywordsSummaryRequest(req, res, options = {}) {
+  await handleBridgeQueryRequest(req, res, {
+    ...options,
+    method: 'POST',
+    buildQuery: createSemIdeasGetKeywordsSummaryPath,
   });
 }
 
@@ -627,6 +789,20 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (method === 'POST' && url.pathname === SIM_TARGET_KEYWORD_SUGGEST_PUBLIC_ENDPOINT) {
+    await handleKeywordGeneratorSuggestRequest(req, res, { origin: SIM_TARGET_ORIGIN });
+    return;
+  }
+
+  if (method === 'POST' && url.pathname === SEM_IDEAS_GET_KEYWORDS_PUBLIC_ENDPOINT) {
+    await handleSemIdeasGetKeywordsRequest(req, res, { origin: 'https://sem.3ue.co' });
+    return;
+  }
+
+  if (method === 'POST' && url.pathname === SEM_IDEAS_GET_KEYWORDS_SUMMARY_PUBLIC_ENDPOINT) {
+    await handleSemIdeasGetKeywordsSummaryRequest(req, res, { origin: 'https://sem.3ue.co' });
+    return;
+  }
 
   if (method === 'POST' && url.pathname === '/v1/extension/poll') {
     await handleExtensionPoll(req, res);

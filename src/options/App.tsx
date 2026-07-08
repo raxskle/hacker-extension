@@ -450,7 +450,7 @@ export default function App() {
 
         <section className="bridge-card">
           <h2>本地接口代理</h2>
-          <p className="hint">用于把目标站点（sim.3ue.co）的登录态请求转发到本地服务供 Claude 调用。</p>
+          <p className="hint">用于把目标站点（sim.3ue.co / sem.3ue.co）的登录态请求转发到本地服务供 Claude 调用。</p>
 
           <div className="native-steps">
             <div className="native-steps-title">使用步骤</div>
@@ -458,8 +458,8 @@ export default function App() {
               <li>先点击“复制安装命令”，在终端执行一次安装（仅首次）。</li>
               <li>填写并保存 BRIDGE_TOKEN（建议使用强随机字符串）。</li>
               <li>点击“启动本地服务”，再点击“检查状态”确认运行中。</li>
-              <li>浏览器打开并登录 https://sim.3ue.co。</li>
-              <li>调用本地接口：/sim/api/websiteOrganicLandingPagesV2 或 /sim/api/websiteOrganicLandingPagesV2/GetTableDrillDown。</li>
+              <li>浏览器打开并登录目标站点（SIM：https://sim.3ue.co；SEM：https://sem.3ue.co）。</li>
+              <li>调用本地接口：/sim/api/websiteOrganicLandingPagesV2、/sim/api/websiteOrganicLandingPagesV2/GetTableDrillDown、/sim/api/KeywordGenerator/google/suggest、/sem/kmtgw/v2/webapi/ideas.GetKeywords 或 /sem/kmtgw/v2/webapi/ideas.GetKeywordsSummary。</li>
             </ol>
           </div>
 

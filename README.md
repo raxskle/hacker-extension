@@ -20,16 +20,19 @@
 
 ## 网站接口封装（本地接口代理）
 
-封装目标站点（当前对外仅开放 `https://sim.3ue.co`）接口，对本地暴露 API，方便 Claude / AI 获取网站数据。
+封装目标站点接口（当前按专用接口开放 `https://sim.3ue.co` 与 `https://sem.3ue.co`），对本地暴露 API，方便 Claude / AI 获取网站数据。
 
 ### 对外接口（路径与页面请求保持一致）
 
-本地服务对外暴露路径与页面实际请求路径一致，当前仅开放 `SIM` 路径前缀。
+本地服务对外暴露路径与页面实际请求路径一致，当前开放 `SIM / SEM` 专用路径前缀。
 
-当前开放 2 个入口：
+当前开放 5 个入口：
 
 1. `POST /sim/api/websiteOrganicLandingPagesV2`
 2. `POST /sim/api/websiteOrganicLandingPagesV2/GetTableDrillDown`
+3. `POST /sim/api/KeywordGenerator/google/suggest`
+4. `POST /sem/kmtgw/v2/webapi/ideas.GetKeywords`
+5. `POST /sem/kmtgw/v2/webapi/ideas.GetKeywordsSummary`
 
 > 旧的通用接口 `/v1/sim/request` 已下线（返回 410）。
 
@@ -41,7 +44,7 @@
 4. 页面执行结果回传扩展，再由扩展回传本地服务（`/v1/extension/result`）
 5. 本地服务将结果返回给 Claude
 
-### 通用请求参数（两接口均可用）
+### 通用请求参数（前两接口均可用）
 
 - `country` (string, 默认 `999`)
 - `latest` (string, 默认 `28d`)
@@ -53,11 +56,11 @@
 - `asc` (boolean, 默认 `false`)
 - `includeSubDomains` (boolean, 默认 `true`)
 - `isWindow` (boolean, 默认 `true`)
-- `timeoutMs` (number, 默认 `20000`): 页面请求超时
-- `waitTimeoutMs` (number, 默认 `35000`): 本地服务等待扩展回包超时
+- `timeoutMs` (number, 默认 `45000`): 页面请求超时
+- `waitTimeoutMs` (number, 默认 `120000`): 本地服务等待扩展回包超时
 - `requestId` (string, 可选): 外部传入追踪 ID
 
-> 说明：当前仅支持 `SIM` 对外路径前缀（`/sim`），无需传 `origin`。
+> 说明：当前开放 `SIM` 与 `SEM` 专用路径前缀（`/sim`、`/sem`），无需传 `origin`。
 
 ### Landing Pages 接口参数
 
@@ -72,6 +75,28 @@
 - `rowsPerPage` (number, 默认 `50`)
 - `searchType` (string, 默认 `domain`)
 - `change` (string, 默认 `New`，用于构造 `x-sw-page`)
+
+### Keyword Generator Suggest 接口参数
+
+- `keyword` (string, 必填): 关键词，例如 `image to text`
+- `websource` (string, 默认 `Total`)
+- `rangeFilter` (string, 可选): 过滤条件串，例如 `cpc,0.1,|difficulty,1,80`
+- `rowsPerPage` (number, 默认 `100`)
+- `type` (string, 默认 `Broad`)
+- `sort` (string, 默认 `windowVolume`)
+- `asc` (boolean, 默认 `false`)
+
+### SEM ideas.GetKeywords 接口参数
+
+- `__gmitm` (string, 必填): 上游 query 参数，需使用当前有效值
+- `requestBody` (object|string, 必填): JSON-RPC 请求体；`method` 必须是 `ideas.GetKeywords`
+- `timeoutMs` / `waitTimeoutMs` / `requestId`: 与其他接口一致
+
+### SEM ideas.GetKeywordsSummary 接口参数
+
+- `__gmitm` (string, 必填): 上游 query 参数，需使用当前有效值
+- `requestBody` (object|string, 必填): JSON-RPC 请求体；`method` 必须是 `ideas.GetKeywordsSummary`
+- 返回中的 `result.total` 可用于计算 `ideas.GetKeywords` 的分页请求次数
 
 ### 一键启动流程（方案 C / Native Messaging）
 
@@ -94,7 +119,8 @@ npm run native:install:mac -- --extension-id=<你的扩展ID>
    - 点击「检查状态」，看到“运行中（PID: xxx）”表示成功
 
 4. **登录目标网站**
-   - 浏览器打开并登录：`https://sim.3ue.co`
+   - 使用 SIM 接口前，浏览器打开并登录：`https://sim.3ue.co`
+   - 使用 SEM 接口前，浏览器打开并登录：`https://sem.3ue.co`
 
 5. **调用对外接口**
 
@@ -143,6 +169,77 @@ curl -X POST http://127.0.0.1:17311/sim/api/websiteOrganicLandingPagesV2/GetTabl
   }'
 ```
 
+- SIM 站点 Keyword Generator Suggest：
+
+```bash
+curl -X POST http://127.0.0.1:17311/sim/api/KeywordGenerator/google/suggest \
+  -H "Authorization: Bearer <options中设置的固定token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "keyword": "image to text",
+    "country": "999",
+    "from": "2026|06|08",
+    "to": "2026|07|05",
+    "isWindow": true,
+    "websource": "Total",
+    "sort": "windowVolume",
+    "asc": false,
+    "rangeFilter": "cpc,0.1,|difficulty,1,80",
+    "rowsPerPage": 100,
+    "type": "Broad",
+    "latest": "28d"
+  }'
+```
+
+- SEM 站点 ideas.GetKeywordsSummary（先拿 total）：
+
+```bash
+curl -X POST http://127.0.0.1:17311/sem/kmtgw/v2/webapi/ideas.GetKeywordsSummary \
+  -H "Authorization: Bearer <options中设置的固定token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "__gmitm": "ayWzA3*l4EVcTpZei43sW*qRvljSdU",
+    "requestBody": {
+      "id": 32,
+      "jsonrpc": "2.0",
+      "method": "ideas.GetKeywordsSummary",
+      "params": {
+        "mode": 0,
+        "currency": "USD",
+        "database": "us",
+        "phrase": "image to text",
+        "questions_only": false
+      }
+    }
+  }'
+```
+
+- SEM 站点 ideas.GetKeywords（分页拉取明细）：
+
+```bash
+curl -X POST http://127.0.0.1:17311/sem/kmtgw/v2/webapi/ideas.GetKeywords \
+  -H "Authorization: Bearer <options中设置的固定token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "__gmitm": "ayWzA3*l4EVcTpZei43sW*qRvljSdU",
+    "requestBody": {
+      "id": 26,
+      "jsonrpc": "2.0",
+      "method": "ideas.GetKeywords",
+      "params": {
+        "mode": 0,
+        "currency": "USD",
+        "database": "us",
+        "phrase": "image to text",
+        "questions_only": false,
+        "page": { "number": 1, "size": 100 }
+      }
+    }
+  }'
+```
+
+> 建议流程：先调 `ideas.GetKeywordsSummary` 读取 `result.total`，再按 `ideas.GetKeywords` 的 `page.size` 计算总页数并循环请求。
+
 ### 手动模式（兼容）
 
 如未安装 native host，仍可手动启动服务：
@@ -155,7 +252,7 @@ BRIDGE_TOKEN=your-secret-token npm run sim:server
 
 - 本地服务仅监听 `127.0.0.1`
 - 必须配置强随机 `BRIDGE_TOKEN`
-- 只允许请求受支持的目标站点（当前对外仅开放 `sim.3ue.co`）
+- 只允许请求受支持的目标站点（当前按专用接口开放 `sim.3ue.co` 与 `sem.3ue.co`）
 
 ## 插件后台配置
 
