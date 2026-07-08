@@ -20,12 +20,14 @@ const TARGET_ENDPOINT_PATH = '/api/websiteOrganicLandingPagesV2';
 const TARGET_DRILLDOWN_ENDPOINT_PATH = '/api/websiteOrganicLandingPagesV2/GetTableDrillDown';
 const TARGET_KEYWORD_SUGGEST_ENDPOINT_PATH = '/api/KeywordGenerator/google/suggest';
 const TARGET_SEM_WEBAPI_PATH = '/kmtgw/v2/webapi';
+const TARGET_SEM_KEYWORD_OVERVIEW_WEBAPI_PATH = '/kwogw/v2/webapi';
 
 const SIM_TARGET_PUBLIC_ENDPOINT = `/sim${TARGET_ENDPOINT_PATH}`;
 const SIM_TARGET_DRILLDOWN_PUBLIC_ENDPOINT = `/sim${TARGET_DRILLDOWN_ENDPOINT_PATH}`;
 const SIM_TARGET_KEYWORD_SUGGEST_PUBLIC_ENDPOINT = `/sim${TARGET_KEYWORD_SUGGEST_ENDPOINT_PATH}`;
 const SEM_IDEAS_GET_KEYWORDS_PUBLIC_ENDPOINT = `/sem${TARGET_SEM_WEBAPI_PATH}/ideas.GetKeywords`;
 const SEM_IDEAS_GET_KEYWORDS_SUMMARY_PUBLIC_ENDPOINT = `/sem${TARGET_SEM_WEBAPI_PATH}/ideas.GetKeywordsSummary`;
+const SEM_KEYWORDS_GET_INFO_PUBLIC_ENDPOINT = `/sem${TARGET_SEM_KEYWORD_OVERVIEW_WEBAPI_PATH}/keywords.GetInfo`;
 
 const EXPOSED_TARGET_ENDPOINTS = [
   SIM_TARGET_PUBLIC_ENDPOINT,
@@ -33,6 +35,7 @@ const EXPOSED_TARGET_ENDPOINTS = [
   SIM_TARGET_KEYWORD_SUGGEST_PUBLIC_ENDPOINT,
   SEM_IDEAS_GET_KEYWORDS_PUBLIC_ENDPOINT,
   SEM_IDEAS_GET_KEYWORDS_SUMMARY_PUBLIC_ENDPOINT,
+  SEM_KEYWORDS_GET_INFO_PUBLIC_ENDPOINT,
 ];
 
 /** @type {Array<{id: string, method: string, path: string, headers: Record<string,string>, body: string, timeoutMs: number, origin: string}>} */
@@ -449,7 +452,7 @@ function createKeywordGeneratorSuggestPath(paramsInput) {
   };
 }
 
-function parseSemWebapiRequestBody(paramsInput, expectedMethod) {
+function parseSemWebapiRequestBody(paramsInput, expectedMethod, targetPath = TARGET_SEM_WEBAPI_PATH) {
   const gmitm = normalizeNonEmptyString(paramsInput?.__gmitm ?? paramsInput?.gmitm, '');
   if (!gmitm) {
     throw new Error('__gmitm 必填');
@@ -483,7 +486,7 @@ function parseSemWebapiRequestBody(paramsInput, expectedMethod) {
   query.set('__gmitm', gmitm);
 
   return {
-    path: `${TARGET_SEM_WEBAPI_PATH}?${query.toString()}`,
+    path: `${targetPath}?${query.toString()}`,
     requestBody: JSON.stringify(requestBody),
   };
 }
@@ -502,6 +505,18 @@ function createSemIdeasGetKeywordsPath(paramsInput) {
 
 function createSemIdeasGetKeywordsSummaryPath(paramsInput) {
   const parsed = parseSemWebapiRequestBody(paramsInput, 'ideas.GetKeywordsSummary');
+  return {
+    path: parsed.path,
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json; charset=utf-8',
+    },
+    requestBody: parsed.requestBody,
+  };
+}
+
+function createSemKeywordsGetInfoPath(paramsInput) {
+  const parsed = parseSemWebapiRequestBody(paramsInput, 'keywords.GetInfo', TARGET_SEM_KEYWORD_OVERVIEW_WEBAPI_PATH);
   return {
     path: parsed.path,
     headers: {
@@ -680,6 +695,14 @@ async function handleSemIdeasGetKeywordsSummaryRequest(req, res, options = {}) {
   });
 }
 
+async function handleSemKeywordsGetInfoRequest(req, res, options = {}) {
+  await handleBridgeQueryRequest(req, res, {
+    ...options,
+    method: 'POST',
+    buildQuery: createSemKeywordsGetInfoPath,
+  });
+}
+
 async function handleExtensionPoll(req, res) {
   if (!isAuthorized(req)) {
     sendJson(res, 401, { ok: false, error: 'unauthorized' });
@@ -801,6 +824,11 @@ const server = http.createServer(async (req, res) => {
 
   if (method === 'POST' && url.pathname === SEM_IDEAS_GET_KEYWORDS_SUMMARY_PUBLIC_ENDPOINT) {
     await handleSemIdeasGetKeywordsSummaryRequest(req, res, { origin: 'https://sem.3ue.co' });
+    return;
+  }
+
+  if (method === 'POST' && url.pathname === SEM_KEYWORDS_GET_INFO_PUBLIC_ENDPOINT) {
+    await handleSemKeywordsGetInfoRequest(req, res, { origin: 'https://sem.3ue.co' });
     return;
   }
 

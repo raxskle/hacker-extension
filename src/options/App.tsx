@@ -459,7 +459,7 @@ export default function App() {
               <li>填写并保存 BRIDGE_TOKEN（建议使用强随机字符串）。</li>
               <li>点击“启动本地服务”，再点击“检查状态”确认运行中。</li>
               <li>浏览器打开并登录目标站点（SIM：https://sim.3ue.co；SEM：https://sem.3ue.co）。</li>
-              <li>调用本地接口：/sim/api/websiteOrganicLandingPagesV2、/sim/api/websiteOrganicLandingPagesV2/GetTableDrillDown、/sim/api/KeywordGenerator/google/suggest、/sem/kmtgw/v2/webapi/ideas.GetKeywords 或 /sem/kmtgw/v2/webapi/ideas.GetKeywordsSummary。</li>
+              <li>调用本地接口：/sim/api/websiteOrganicLandingPagesV2、/sim/api/websiteOrganicLandingPagesV2/GetTableDrillDown、/sim/api/KeywordGenerator/google/suggest、/sem/kmtgw/v2/webapi/ideas.GetKeywords、/sem/kmtgw/v2/webapi/ideas.GetKeywordsSummary 或 /sem/kwogw/v2/webapi/keywords.GetInfo。</li>
             </ol>
           </div>
 

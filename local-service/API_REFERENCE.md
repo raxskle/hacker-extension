@@ -638,9 +638,152 @@ fetch("https://sem.3ue.co/kmtgw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU
 
 ---
 
-## 6) 其他接口
+## 6) Keyword Info（SEM · keywords.GetInfo）
 
-### 6.1 健康检查
+### 本地服务暴露 API
+
+- **方法**：`POST`
+- **路径**：`/sem/kwogw/v2/webapi/keywords.GetInfo`
+
+### 页面侧实际请求（插件在页面执行）
+
+- **方法**：`POST`
+- **URL**：`https://sem.3ue.co/kwogw/v2/webapi?__gmitm=...`
+
+### 使用说明
+
+用于查询单个关键词在不同 `database`（地区库）下的指标信息（如 `volume`、`cpc`、`difficulty`）。
+
+如果你要得到“全球汇总视角”，建议按如下规则在客户端做聚合：
+
+- `globalVolume` = 所有地区 `volume` 求和；
+- `globalCpcAvg` = 所有地区 `cpc` 做平均（忽略 `null`）；
+- `globalDifficultyAvg` = 所有地区 `difficulty` 做平均（忽略 `null`）。
+
+> 本地服务当前做透传，不在服务端改写上游响应；全球汇总值需调用方按上述规则自行计算。
+
+### 请求体字段（完整）
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `__gmitm` | string | ✅ | - | 上游请求 query 参数，必须与当前会话有效值一致（兼容别名 `gmitm`） |
+| `requestBody` | object \| string | ✅ | - | JSON-RPC 请求体，`method` 必须为 `keywords.GetInfo`；string 时需为合法 JSON |
+| `timeoutMs` | number | 否 | `45000` | 页面请求超时（ms），上限 `180000` |
+| `waitTimeoutMs` | number | 否 | `120000` | 本地服务等待扩展回包超时（ms），上限 `300000` |
+| `requestId` | string | 否 | 自动生成 UUID | 请求追踪 ID |
+
+### 本地调用示例（curl）
+
+```bash
+curl -X POST http://127.0.0.1:17311/sem/kwogw/v2/webapi/keywords.GetInfo \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "__gmitm": "ayWzA3*l4EVcTpZei43sW*qRvljSdU",
+    "requestBody": {
+      "id": 33,
+      "jsonrpc": "2.0",
+      "method": "keywords.GetInfo",
+      "params": {
+        "phrase": "image to text",
+        "device": 0,
+        "currency": "USD",
+        "database": "us",
+        "locati0n": 0,
+        "date": ""
+      }
+    }
+  }'
+```
+
+### 插件页面请求示例（真实请求）
+
+```js
+fetch("https://sem.3ue.co/kwogw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU", {
+  "headers": {
+    "content-type": "application/json; charset=utf-8"
+  },
+  "referrer": "https://sem.3ue.co/analytics/keywordoverview/?db=uk&q=image+to+text",
+  "body": "{\"id\":33,\"jsonrpc\":\"2.0\",\"method\":\"keywords.GetInfo\",\"params\":{\"phrase\":\"image to text\",\"device\":0,\"currency\":\"USD\",\"database\":\"us\",\"locati0n\":0,\"date\":\"\"}}",
+  "method": "POST",
+  "mode": "cors",
+  "credentials": "omit"
+});
+```
+
+### 响应示例（已简化）
+
+#### A. 本地服务返回（统一封装）
+
+```json
+{
+  "ok": true,
+  "data": {
+    "status": 200,
+    "headers": { "content-type": "application/json" },
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":33,\"result\":{\"keywords\":[...]}}",
+    "truncated": false,
+    "finalUrl": "https://sem.3ue.co/kwogw/v2/webapi?__gmitm=..."
+  },
+  "meta": {
+    "requestId": "..."
+  }
+}
+```
+
+#### B. `data.body` 解析后的上游响应（节选）
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 33,
+  "result": {
+    "keywords": [
+      {
+        "phrase": "image to text",
+        "database": "us",
+        "volume": 60500,
+        "cpc": 1.91,
+        "difficulty": 53
+      },
+      {
+        "phrase": "image to text",
+        "database": "uk",
+        "volume": 22200,
+        "cpc": null,
+        "difficulty": null
+      }
+    ]
+  }
+}
+```
+
+### 全球汇总计算示例（调用方侧）
+
+```js
+const keywords = parsed.result?.keywords ?? [];
+const globalVolume = keywords.reduce((sum, item) => sum + (Number(item.volume) || 0), 0);
+
+const cpcValues = keywords
+  .map((item) => (typeof item.cpc === 'number' ? item.cpc : null))
+  .filter((v) => v !== null);
+const globalCpcAvg = cpcValues.length
+  ? cpcValues.reduce((sum, v) => sum + v, 0) / cpcValues.length
+  : null;
+
+const kdValues = keywords
+  .map((item) => (typeof item.difficulty === 'number' ? item.difficulty : null))
+  .filter((v) => v !== null);
+const globalDifficultyAvg = kdValues.length
+  ? kdValues.reduce((sum, v) => sum + v, 0) / kdValues.length
+  : null;
+```
+
+---
+
+## 7) 其他接口
+
+### 7.1 健康检查
 
 - **方法**：`GET`
 - **路径**：`/health`
@@ -661,27 +804,28 @@ fetch("https://sem.3ue.co/kmtgw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU
       "/sim/api/websiteOrganicLandingPagesV2/GetTableDrillDown",
       "/sim/api/KeywordGenerator/google/suggest",
       "/sem/kmtgw/v2/webapi/ideas.GetKeywords",
-      "/sem/kmtgw/v2/webapi/ideas.GetKeywordsSummary"
+      "/sem/kmtgw/v2/webapi/ideas.GetKeywordsSummary",
+      "/sem/kwogw/v2/webapi/keywords.GetInfo"
     ],
     "targetPath": "/api/websiteOrganicLandingPagesV2"
   }
 }
 ```
 
-### 6.2 已下线通用接口
+### 7.2 已下线通用接口
 
 - **方法**：`POST`
 - **路径**：`/v1/sim/request`
 - **说明**：固定返回 `410`（已下线）
 
-### 6.3 扩展内部接口（不建议 AI 直接调用）
+### 7.3 扩展内部接口（不建议 AI 直接调用）
 
 - `POST /v1/extension/poll`
 - `POST /v1/extension/result`
 
 ---
 
-## 7) 常见错误码
+## 8) 常见错误码
 
 - `AUTH_FAILED`：token 无效（401）
 - `INVALID_JSON`：JSON 解析失败（400）

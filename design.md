@@ -30,17 +30,29 @@ method: "ideas.GetKeywordsSummary"
 
 2. 验词
 
-从上一步拿到词并简单规则去重、去垃圾词。然后验词
+从上一步拿到词并简单规则去重、去垃圾词。然后验词。
 
 2.1 词看流量，看意图，哥飞 KD 工具
 
-多个工具过滤，给一个比较宽泛的条件，这样可以保证词的数据比较准确
+多个工具过滤，给一个比较宽泛的条件，这样可以保证词的数据比较准确，semrush 和 similarWeb 分别查词的流量、KD、CPC
 
-semrush 和 similarWeb 分别查词的流量、KD、CPC
-
-流量大于 1k
+流量大于 1k（仅限于老词）
 哥飞 KD < 50
+
+https://sem.3ue.co/kwogw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU 
+method: "keywords.GetInfo"
+
+GET https://seo.web.cafe/kd/api/v1/kd
 
 3. 外链
 
 3.1 根据网站找外链
+
+
+
+------
+思路是，vercel.app和sitemap监控找到的是新词，工具的流量和kd不准，手动去Google trends等验证。
+词根方法找的词是老词，其实自带工具各自的流量和KD,CPC。
+验词工具验证老词的可行性。
+所以这些skill分开用。
+前期先手动验证多一些，总结一下规律。

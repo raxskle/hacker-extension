@@ -26,13 +26,14 @@
 
 本地服务对外暴露路径与页面实际请求路径一致，当前开放 `SIM / SEM` 专用路径前缀。
 
-当前开放 5 个入口：
+当前开放 6 个入口：
 
 1. `POST /sim/api/websiteOrganicLandingPagesV2`
 2. `POST /sim/api/websiteOrganicLandingPagesV2/GetTableDrillDown`
 3. `POST /sim/api/KeywordGenerator/google/suggest`
 4. `POST /sem/kmtgw/v2/webapi/ideas.GetKeywords`
 5. `POST /sem/kmtgw/v2/webapi/ideas.GetKeywordsSummary`
+6. `POST /sem/kwogw/v2/webapi/keywords.GetInfo`
 
 > 旧的通用接口 `/v1/sim/request` 已下线（返回 410）。
 
@@ -97,6 +98,12 @@
 - `__gmitm` (string, 必填): 上游 query 参数，需使用当前有效值
 - `requestBody` (object|string, 必填): JSON-RPC 请求体；`method` 必须是 `ideas.GetKeywordsSummary`
 - 返回中的 `result.total` 可用于计算 `ideas.GetKeywords` 的分页请求次数
+
+### SEM keywords.GetInfo 接口参数
+
+- `__gmitm` (string, 必填): 上游 query 参数，需使用当前有效值
+- `requestBody` (object|string, 必填): JSON-RPC 请求体；`method` 必须是 `keywords.GetInfo`
+- 返回中 `result.keywords` 为分地区数据。全球聚合建议：`volume` 求和，`cpc` 和 `difficulty` 对非 null 值做平均
 
 ### 一键启动流程（方案 C / Native Messaging）
 
@@ -240,6 +247,31 @@ curl -X POST http://127.0.0.1:17311/sem/kmtgw/v2/webapi/ideas.GetKeywords \
 
 > 建议流程：先调 `ideas.GetKeywordsSummary` 读取 `result.total`，再按 `ideas.GetKeywords` 的 `page.size` 计算总页数并循环请求。
 
+- SEM 站点 keywords.GetInfo（单关键词多地区信息）：
+
+```bash
+curl -X POST http://127.0.0.1:17311/sem/kwogw/v2/webapi/keywords.GetInfo \
+  -H "Authorization: Bearer <options中设置的固定token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "__gmitm": "ayWzA3*l4EVcTpZei43sW*qRvljSdU",
+    "requestBody": {
+      "id": 33,
+      "jsonrpc": "2.0",
+      "method": "keywords.GetInfo",
+      "params": {
+        "phrase": "image to text",
+        "device": 0,
+        "currency": "USD",
+        "database": "us",
+        "locati0n": 0,
+        "date": ""
+      }
+    }
+  }'
+```
+
+> `keywords.GetInfo` 返回的是分地区库（database）的明细。若要全球口径：将所有地区 `volume` 累加；`cpc` 与 `difficulty` 对非 null 值做平均。
 ### 手动模式（兼容）
 
 如未安装 native host，仍可手动启动服务：
