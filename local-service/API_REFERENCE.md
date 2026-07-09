@@ -456,16 +456,56 @@ curl -X POST http://127.0.0.1:17311/sem/kmtgw/v2/webapi/ideas.GetKeywords \
   -d '{
     "__gmitm": "ayWzA3*l4EVcTpZei43sW*qRvljSdU",
     "requestBody": {
-      "id": 26,
+      "id": 14,
       "jsonrpc": "2.0",
       "method": "ideas.GetKeywords",
       "params": {
         "mode": 0,
         "currency": "USD",
         "database": "us",
+        "filter": {
+          "phrase": [],
+          "competition_level": [],
+          "cpc": [
+            {
+              "inverted": false,
+              "operation": 5,
+              "value": 0.1
+            }
+          ],
+          "difficulty": [
+            {
+              "inverted": false,
+              "operation": 4,
+              "value": 90
+            }
+          ],
+          "results": [],
+          "serp_features": [
+            {
+              "inverted": false,
+              "value": []
+            }
+          ],
+          "volume": [],
+          "words_count": [],
+          "phrase_include_logic": 0
+        },
+        "groups": [],
+        "order": {
+          "direction": 1,
+          "field": "volume"
+        },
+        "groups_order": {
+          "direction": 1,
+          "field": "count"
+        },
         "phrase": "image to text",
         "questions_only": false,
-        "page": { "number": 1, "size": 100 }
+        "page": {
+          "number": 1,
+          "size": 100
+        }
       }
     }
   }'
@@ -476,17 +516,26 @@ curl -X POST http://127.0.0.1:17311/sem/kmtgw/v2/webapi/ideas.GetKeywords \
 ```js
 fetch("https://sem.3ue.co/kmtgw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU", {
   "headers": {
-    "content-type": "application/json; charset=utf-8"
+    "content-type": "application/json; charset=utf-8",
+    "sec-ch-ua": "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
+    "sec-ch-ua-arch": "\"arm\"",
+    "sec-ch-ua-bitness": "\"64\"",
+    "sec-ch-ua-full-version": "\"149.0.7827.201\"",
+    "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"149.0.7827.201\", \"Chromium\";v=\"149.0.7827.201\", \"Not)A;Brand\";v=\"24.0.0.0\"",
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-model": "\"\"",
+    "sec-ch-ua-platform": "\"macOS\"",
+    "sec-ch-ua-platform-version": "\"14.7.8\""
   },
-  "referrer": "https://sem.3ue.co/analytics/keywordmagic/",
-  "body": "{\"id\":26,\"jsonrpc\":\"2.0\",\"method\":\"ideas.GetKeywords\",\"params\":{\"mode\":0,\"currency\":\"USD\",\"database\":\"us\",\"phrase\":\"image to text\",\"questions_only\":false,\"page\":{\"number\":1,\"size\":100}}}",
+  "referrer": "https://sem.3ue.co/analytics/keywordmagic/?db=us&q=image+to+text&filter=H4sIAAAAAAAAA4WO3QrCMAxG3yXXRSbohX2VMUppUy1kTemfjOG727nhleDdR%2FKdnKxgeI5YfPEcFGFDAjlOAkw0PazgQ8NU0IJ0mjIK4IhJb22QVwFNU0WQw%2Bn86pD1znlTqSx%2F2cuXvQ0bGh9JZ9zde1Y%2BGKoWFfHd92cGAQlzP573VsYUlUNdah%2F%2F9h2GcdoMjanOh%2BHJyWZluIbyWb8BTzxbIAcBAAA%3D&__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU",
+  "body": "{\"id\":14,\"jsonrpc\":\"2.0\",\"method\":\"ideas.GetKeywords\",\"params\":{\"mode\":0,\"currency\":\"USD\",\"database\":\"us\",\"filter\":{\"phrase\":[],\"competition_level\":[],\"cpc\":[{\"inverted\":false,\"operation\":5,\"value\":0.1}],\"difficulty\":[{\"inverted\":false,\"operation\":4,\"value\":90}],\"results\":[],\"serp_features\":[{\"inverted\":false,\"value\":[]}],\"volume\":[],\"words_count\":[],\"phrase_include_logic\":0},\"groups\":[],\"order\":{\"direction\":1,\"field\":\"volume\"},\"groups_order\":{\"direction\":1,\"field\":\"count\"},\"phrase\":\"image to text\",\"questions_only\":false,\"page\":{\"number\":1,\"size\":100}}}",
   "method": "POST",
   "mode": "cors",
   "credentials": "omit"
 });
 ```
 
-### 响应示例（已简化）
+### 响应示例（结构完整，keywords 仅保留前 2 项）
 
 #### A. 本地服务返回（统一封装）
 
@@ -495,10 +544,13 @@ fetch("https://sem.3ue.co/kmtgw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU
   "ok": true,
   "data": {
     "status": 200,
-    "headers": { "content-type": "application/json" },
-    "body": "{\"jsonrpc\":\"2.0\",\"id\":26,\"result\":{\"keywords\":[...]}}",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "x-service": "kmtgw.v2"
+    },
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":14,\"result\":{\"keywords\":[{\"phrase\":\"image to text\",\"database\":\"us\",\"volume\":60500,\"cpc\":1.91,\"competition_level\":0.01,\"difficulty\":53,\"intents\":[0],\"results\":129,\"serp_features\":[7,9,28],\"trend\":[66,54,44,66,81,81,54,66,44,54,81,66],\"snapshot_date\":\"20260620\",\"update_status\":0,\"status_updated_at\":0,\"serp_id\":\"b-h-97-0614-5215067199588878276\",\"serp_updated_at\":1781436713},{\"phrase\":\"image to text converter\",\"database\":\"us\",\"volume\":18100,\"cpc\":1.88,\"competition_level\":0.11,\"difficulty\":68,\"intents\":[0,3],\"results\":122,\"serp_features\":[7,9,28],\"trend\":[67,44,36,36,54,67,54,36,54,100,29,44],\"snapshot_date\":\"20260620\",\"update_status\":0,\"status_updated_at\":0,\"serp_id\":\"b-e-97-0617-617807360941201470\",\"serp_updated_at\":1781694311}],\"topics_enabled\":false}}",
     "truncated": false,
-    "finalUrl": "https://sem.3ue.co/kmtgw/v2/webapi?__gmitm=..."
+    "finalUrl": "https://sem.3ue.co/kmtgw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU"
   },
   "meta": {
     "requestId": "..."
@@ -506,12 +558,12 @@ fetch("https://sem.3ue.co/kmtgw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU
 }
 ```
 
-#### B. `data.body` 解析后的上游响应（节选）
+#### B. `data.body` 解析后的上游响应（结构完整，keywords 仅保留前 2 项）
 
 ```json
 {
   "jsonrpc": "2.0",
-  "id": 26,
+  "id": 14,
   "result": {
     "keywords": [
       {
@@ -519,7 +571,73 @@ fetch("https://sem.3ue.co/kmtgw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU
         "database": "us",
         "volume": 60500,
         "cpc": 1.91,
-        "difficulty": 53
+        "competition_level": 0.01,
+        "difficulty": 53,
+        "intents": [
+          0
+        ],
+        "results": 129,
+        "serp_features": [
+          7,
+          9,
+          28
+        ],
+        "trend": [
+          66,
+          54,
+          44,
+          66,
+          81,
+          81,
+          54,
+          66,
+          44,
+          54,
+          81,
+          66
+        ],
+        "snapshot_date": "20260620",
+        "update_status": 0,
+        "status_updated_at": 0,
+        "serp_id": "b-h-97-0614-5215067199588878276",
+        "serp_updated_at": 1781436713
+      },
+      {
+        "phrase": "image to text converter",
+        "database": "us",
+        "volume": 18100,
+        "cpc": 1.88,
+        "competition_level": 0.11,
+        "difficulty": 68,
+        "intents": [
+          0,
+          3
+        ],
+        "results": 122,
+        "serp_features": [
+          7,
+          9,
+          28
+        ],
+        "trend": [
+          67,
+          44,
+          36,
+          36,
+          54,
+          67,
+          54,
+          36,
+          54,
+          100,
+          29,
+          44
+        ],
+        "snapshot_date": "20260620",
+        "update_status": 0,
+        "status_updated_at": 0,
+        "serp_id": "b-e-97-0617-617807360941201470",
+        "serp_updated_at": 1781694311
       }
     ],
     "topics_enabled": false
@@ -572,13 +690,50 @@ curl -X POST http://127.0.0.1:17311/sem/kmtgw/v2/webapi/ideas.GetKeywordsSummary
   -d '{
     "__gmitm": "ayWzA3*l4EVcTpZei43sW*qRvljSdU",
     "requestBody": {
-      "id": 32,
+      "id": 15,
       "jsonrpc": "2.0",
       "method": "ideas.GetKeywordsSummary",
       "params": {
         "mode": 0,
         "currency": "USD",
         "database": "us",
+        "filter": {
+          "phrase": [],
+          "competition_level": [],
+          "cpc": [
+            {
+              "inverted": false,
+              "operation": 5,
+              "value": 0.1
+            }
+          ],
+          "difficulty": [
+            {
+              "inverted": false,
+              "operation": 4,
+              "value": 90
+            }
+          ],
+          "results": [],
+          "serp_features": [
+            {
+              "inverted": false,
+              "value": []
+            }
+          ],
+          "volume": [],
+          "words_count": [],
+          "phrase_include_logic": 0
+        },
+        "groups": [],
+        "order": {
+          "direction": 1,
+          "field": "volume"
+        },
+        "groups_order": {
+          "direction": 1,
+          "field": "count"
+        },
         "phrase": "image to text",
         "questions_only": false
       }
@@ -591,17 +746,26 @@ curl -X POST http://127.0.0.1:17311/sem/kmtgw/v2/webapi/ideas.GetKeywordsSummary
 ```js
 fetch("https://sem.3ue.co/kmtgw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU", {
   "headers": {
-    "content-type": "application/json; charset=utf-8"
+    "content-type": "application/json; charset=utf-8",
+    "sec-ch-ua": "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
+    "sec-ch-ua-arch": "\"arm\"",
+    "sec-ch-ua-bitness": "\"64\"",
+    "sec-ch-ua-full-version": "\"149.0.7827.201\"",
+    "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"149.0.7827.201\", \"Chromium\";v=\"149.0.7827.201\", \"Not)A;Brand\";v=\"24.0.0.0\"",
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-model": "\"\"",
+    "sec-ch-ua-platform": "\"macOS\"",
+    "sec-ch-ua-platform-version": "\"14.7.8\""
   },
-  "referrer": "https://sem.3ue.co/analytics/keywordmagic/",
-  "body": "{\"id\":32,\"jsonrpc\":\"2.0\",\"method\":\"ideas.GetKeywordsSummary\",\"params\":{\"mode\":0,\"currency\":\"USD\",\"database\":\"us\",\"phrase\":\"image to text\",\"questions_only\":false}}",
+  "referrer": "https://sem.3ue.co/analytics/keywordmagic/?db=us&q=image+to+text&filter=H4sIAAAAAAAAA4WO3QrCMAxG3yXXRSbohX2VMUppUy1kTemfjOG727nhleDdR%2FKdnKxgeI5YfPEcFGFDAjlOAkw0PazgQ8NU0IJ0mjIK4IhJb22QVwFNU0WQw%2Bn86pD1znlTqSx%2F2cuXvQ0bGh9JZ9zde1Y%2BGKoWFfHd92cGAQlzP573VsYUlUNdah%2F%2F9h2GcdoMjanOh%2BHJyWZluIbyWb8BTzxbIAcBAAA%3D&__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU",
+  "body": "{\"id\":15,\"jsonrpc\":\"2.0\",\"method\":\"ideas.GetKeywordsSummary\",\"params\":{\"mode\":0,\"currency\":\"USD\",\"database\":\"us\",\"filter\":{\"phrase\":[],\"competition_level\":[],\"cpc\":[{\"inverted\":false,\"operation\":5,\"value\":0.1}],\"difficulty\":[{\"inverted\":false,\"operation\":4,\"value\":90}],\"results\":[],\"serp_features\":[{\"inverted\":false,\"value\":[]}],\"volume\":[],\"words_count\":[],\"phrase_include_logic\":0},\"groups\":[],\"order\":{\"direction\":1,\"field\":\"volume\"},\"groups_order\":{\"direction\":1,\"field\":\"count\"},\"phrase\":\"image to text\",\"questions_only\":false}}",
   "method": "POST",
   "mode": "cors",
   "credentials": "omit"
 });
 ```
 
-### 响应示例（已简化）
+### 响应示例（结构完整）
 
 #### A. 本地服务返回（统一封装）
 
@@ -610,10 +774,13 @@ fetch("https://sem.3ue.co/kmtgw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU
   "ok": true,
   "data": {
     "status": 200,
-    "headers": { "content-type": "application/json" },
-    "body": "{\"jsonrpc\":\"2.0\",\"id\":32,\"result\":{\"total\":532,...}}",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "x-service": "kmtgw.v2"
+    },
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":15,\"result\":{\"total\":549,\"total_volume\":225440,\"total_keywords_with_difficulty\":549,\"total_difficulty\":28283}}",
     "truncated": false,
-    "finalUrl": "https://sem.3ue.co/kmtgw/v2/webapi?__gmitm=..."
+    "finalUrl": "https://sem.3ue.co/kmtgw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU"
   },
   "meta": {
     "requestId": "..."
@@ -621,17 +788,17 @@ fetch("https://sem.3ue.co/kmtgw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU
 }
 ```
 
-#### B. `data.body` 解析后的上游响应（节选）
+#### B. `data.body` 解析后的上游响应（结构完整）
 
 ```json
 {
   "jsonrpc": "2.0",
-  "id": 32,
+  "id": 15,
   "result": {
-    "total": 532,
-    "total_volume": 222620,
-    "total_keywords_with_difficulty": 532,
-    "total_difficulty": 26849
+    "total": 549,
+    "total_volume": 225440,
+    "total_keywords_with_difficulty": 549,
+    "total_difficulty": 28283
   }
 }
 ```

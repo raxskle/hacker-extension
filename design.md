@@ -18,11 +18,9 @@ https://xxx/sitemap.xml
 
 1.3 词根找关键词
 
-semrush 关键词魔法工具，similarweb 关键词生成工具
+https://sim.3ue.co/api/KeywordGenerator/google/suggest  similarweb 关键词生成工具 
 
-https://sim.3ue.co/api/KeywordGenerator/google/suggest
-
-https://sem.3ue.co/kmtgw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU  
+https://sem.3ue.co/kmtgw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU  semrush 关键词魔法工具 
 method: "ideas.GetKeywords"
 method: "ideas.GetKeywordsSummary"
 
