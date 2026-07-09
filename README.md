@@ -45,13 +45,23 @@
 4. 页面执行结果回传扩展，再由扩展回传本地服务（`/v1/extension/result`）
 5. 本地服务将结果返回给 Claude
 
+### 参数读取规则（重要）
+
+- 所有业务端点都支持 **body + URL query** 两种传参方式。
+- 若同名字段同时出现在 body 与 query：**body 优先**。
+- 字段格式校验为严格模式：
+  - 日期必须是 `YYYY|MM|DD`
+  - 布尔必须是 `true/false`
+  - 数字字段必须是数字（可传数字字符串）
+- SIM 专用接口不支持 `requestBody` 覆盖上游 body；SEM JSON-RPC 专用接口必须使用 `requestBody`。
+
 ### 通用请求参数（前两接口均可用）
 
 - `country` (string, 默认 `999`)
 - `latest` (string, 默认 `28d`)
 - `from` (string, 可选): `YYYY|MM|DD`，如 `2026|06|06`
 - `to` (string, 可选): `YYYY|MM|DD`，如 `2026|07|03`
-- `webSource` (string, 默认 `Total`)
+- `webSource` / `websource` (string, 默认 `Total`)
 - `sourceType` (string, 默认 `organic`)
 - `sort` (string, 默认 `ClicksShare`)
 - `asc` (boolean, 默认 `false`)
@@ -68,6 +78,7 @@
 - `key` (string, 必填): 域名关键词，例如 `vercel.app`
 - `page` (number, 默认 `1`)
 - `searchType` (string, 默认 `domain`)
+- `orderBy` (string, 可选): 不传时自动按 `sort + asc` 生成
 
 ### Keyword DrillDown 接口参数
 
@@ -80,12 +91,14 @@
 ### Keyword Generator Suggest 接口参数
 
 - `keyword` (string, 必填): 关键词，例如 `image to text`
-- `websource` (string, 默认 `Total`)
+- `websource` / `webSource` (string, 默认 `Total`)
 - `rangeFilter` (string, 可选): 过滤条件串，例如 `cpc,0.1,|difficulty,1,80`
 - `rowsPerPage` (number, 默认 `100`)
+- `page` (number, 默认 `1`)
 - `type` (string, 默认 `Broad`)
 - `sort` (string, 默认 `windowVolume`)
 - `asc` (boolean, 默认 `false`)
+- `orderBy` (string, 可选): 不传时自动按 `sort + asc` 生成
 
 ### SEM ideas.GetKeywords 接口参数
 
@@ -191,8 +204,10 @@ curl -X POST http://127.0.0.1:17311/sim/api/KeywordGenerator/google/suggest \
     "websource": "Total",
     "sort": "windowVolume",
     "asc": false,
+    "orderBy": "windowVolume desc",
     "rangeFilter": "cpc,0.1,|difficulty,1,80",
     "rowsPerPage": 100,
+    "page": 2,
     "type": "Broad",
     "latest": "28d"
   }'
@@ -285,6 +300,14 @@ BRIDGE_TOKEN=your-secret-token npm run sim:server
 - 本地服务仅监听 `127.0.0.1`
 - 必须配置强随机 `BRIDGE_TOKEN`
 - 只允许请求受支持的目标站点（当前按专用接口开放 `sim.3ue.co` 与 `sem.3ue.co`）
+
+### 本地回归测试
+
+```bash
+npm run test
+```
+
+- 覆盖 `local-service` 对外端点的字段透传、别名、分页与参数优先级回归用例。
 
 ## 插件后台配置
 

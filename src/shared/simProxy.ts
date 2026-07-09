@@ -1,5 +1,6 @@
 export const SIM_PROXY_EXECUTE = 'sim-proxy/execute';
 export const SIM_PROXY_RESULT = 'sim-proxy/result';
+export const SIM_PROXY_STATUS = 'sim-proxy/status';
 
 export const SIM_PROXY_BRIDGE_SOURCE = 'hacker-extension-sim-proxy';
 export const SIM_PROXY_WINDOW_EXECUTE = 'sim/execute';
@@ -25,6 +26,47 @@ export type SimProxyResultPayload = {
   error: string;
 };
 
+export type SimProxyHealthStatus = 'up' | 'down' | 'unknown';
+export type SimProxyStatusLevel = 'ok' | 'warn' | 'error';
+
+export type SimProxyBridgeStatusPayload = {
+  checkedAt: number;
+  level: SimProxyStatusLevel;
+  summary: string;
+  config: {
+    enabled: boolean;
+    baseUrl: string;
+    hasToken: boolean;
+  };
+  health: {
+    ok: boolean;
+    status: SimProxyHealthStatus;
+    pendingJobs: number | null;
+    waitingResults: number | null;
+    waitingPollers: number | null;
+    lastCheckedAt: number | null;
+    lastError: string;
+  };
+  poll: {
+    loopRunning: boolean;
+    lastPollAt: number | null;
+    lastPollOkAt: number | null;
+    lastPollError: string;
+  };
+  dispatch: {
+    pendingResultCount: number;
+    lastJobId: string;
+    lastOrigin: string;
+    lastDispatchAt: number | null;
+    lastDispatchError: string;
+  };
+  result: {
+    lastResultReceivedAt: number | null;
+    lastResultPostedAt: number | null;
+    lastResultPostError: string;
+  };
+};
+
 export type SimProxyWindowExecuteMessage = {
   source: typeof SIM_PROXY_BRIDGE_SOURCE;
   type: typeof SIM_PROXY_WINDOW_EXECUTE;
@@ -47,7 +89,11 @@ type SimProxyResultRequest = {
   payload: SimProxyResultPayload;
 };
 
-export type SimProxyBackgroundRequest = SimProxyExecuteRequest | SimProxyResultRequest;
+type SimProxyStatusRequest = {
+  type: typeof SIM_PROXY_STATUS;
+};
+
+export type SimProxyBackgroundRequest = SimProxyExecuteRequest | SimProxyResultRequest | SimProxyStatusRequest;
 
 type SimProxySuccess<T> = {
   ok: true;
@@ -84,6 +130,10 @@ export async function requestSimProxyResult(payload: SimProxyResultPayload): Pro
     type: SIM_PROXY_RESULT,
     payload,
   });
+}
+
+export async function requestSimProxyStatus(): Promise<SimProxyBridgeStatusPayload> {
+  return requestSimProxyBackground<SimProxyBridgeStatusPayload>({ type: SIM_PROXY_STATUS });
 }
 
 export function createSimProxyFailure(error: unknown): SimProxyBackgroundResponse {

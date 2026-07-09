@@ -57,11 +57,14 @@ import {
 import {
   SIM_PROXY_EXECUTE,
   SIM_PROXY_RESULT,
+  SIM_PROXY_STATUS,
   createSimProxyFailure,
   type SimProxyBackgroundRequest,
   type SimProxyBackgroundResponse,
+  type SimProxyBridgeStatusPayload,
   type SimProxyExecutePayload,
   type SimProxyResultPayload,
+  type SimProxyStatusLevel,
 } from './shared/simProxy';
 import {
   NATIVE_HOST_NAME,
@@ -283,6 +286,255 @@ type SimProxyPendingRequest = {
 const simProxyPendingRequests = new Map<string, SimProxyPendingRequest>();
 let simProxyPollLoopRunning = false;
 
+type SimProxyHealthSnapshot = {
+  ok: boolean;
+  status: 'up' | 'down' | 'unknown';
+  pendingJobs: number | null;
+  waitingResults: number | null;
+  waitingPollers: number | null;
+  lastCheckedAt: number | null;
+  lastError: string;
+};
+
+type SimProxyRuntimeState = {
+  poll: {
+    lastPollAt: number | null;
+    lastPollOkAt: number | null;
+    lastPollError: string;
+  };
+  dispatch: {
+    lastJobId: string;
+    lastOrigin: string;
+    lastDispatchAt: number | null;
+    lastDispatchError: string;
+  };
+  result: {
+    lastResultReceivedAt: number | null;
+    lastResultPostedAt: number | null;
+    lastResultPostError: string;
+  };
+  health: SimProxyHealthSnapshot;
+};
+
+const SIM_PROXY_STATUS_HEALTH_TIMEOUT_MS = 3_000;
+
+const simProxyRuntimeState: SimProxyRuntimeState = {
+  poll: {
+    lastPollAt: null,
+    lastPollOkAt: null,
+    lastPollError: '',
+  },
+  dispatch: {
+    lastJobId: '',
+    lastOrigin: '',
+    lastDispatchAt: null,
+    lastDispatchError: '',
+  },
+  result: {
+    lastResultReceivedAt: null,
+    lastResultPostedAt: null,
+    lastResultPostError: '',
+  },
+  health: {
+    ok: false,
+    status: 'unknown',
+    pendingJobs: null,
+    waitingResults: null,
+    waitingPollers: null,
+    lastCheckedAt: null,
+    lastError: '',
+  },
+};
+
+function toErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (typeof error === 'string' && error.trim()) {
+    return error.trim();
+  }
+
+  return fallback;
+}
+
+function updateSimProxyHealth(partial: Partial<SimProxyHealthSnapshot>): void {
+  simProxyRuntimeState.health = {
+    ...simProxyRuntimeState.health,
+    ...partial,
+  };
+}
+
+function getSimProxyStatusSummary(level: SimProxyStatusLevel, state: SimProxyBridgeStatusPayload): string {
+  if (level === 'error') {
+    if (!state.config.hasToken) {
+      return '缺少 BRIDGE_TOKEN，请先在设置中保存。';
+    }
+
+    if (!state.health.ok) {
+      return state.health.lastError || '本地服务不可达，请先启动并检查地址。';
+    }
+
+    if (state.poll.lastPollError) {
+      return `轮询失败：${state.poll.lastPollError}`;
+    }
+
+    if (state.result.lastResultPostError) {
+      return `结果回传失败：${state.result.lastResultPostError}`;
+    }
+
+    return '代理链路异常，请检查本地服务与扩展状态。';
+  }
+
+  if (level === 'warn') {
+    if (state.health.waitingResults != null && state.health.waitingResults > 0) {
+      return `存在 ${state.health.waitingResults} 个等待结果任务，可能页面回传缓慢。`;
+    }
+
+    if (
+      state.health.pendingJobs != null &&
+      state.health.pendingJobs > 0 &&
+      state.health.waitingPollers != null &&
+      state.health.waitingPollers === 0
+    ) {
+      return '检测到任务堆积，扩展可能未持续轮询。';
+    }
+
+    if (state.dispatch.lastDispatchError) {
+      return `页面派发失败：${state.dispatch.lastDispatchError}`;
+    }
+
+    return '代理链路有告警，建议执行一次链路检查。';
+  }
+
+  return '代理链路正常。';
+}
+
+function getSimProxyStatusLevel(state: Omit<SimProxyBridgeStatusPayload, 'level' | 'summary' | 'checkedAt'>): SimProxyStatusLevel {
+  if (!state.config.hasToken || !state.health.ok || !!state.poll.lastPollError || !!state.result.lastResultPostError) {
+    return 'error';
+  }
+
+  if (
+    !!state.dispatch.lastDispatchError ||
+    (state.health.waitingResults != null && state.health.waitingResults > 0) ||
+    (state.health.pendingJobs != null &&
+      state.health.pendingJobs > 0 &&
+      state.health.waitingPollers != null &&
+      state.health.waitingPollers === 0)
+  ) {
+    return 'warn';
+  }
+
+  return 'ok';
+}
+
+async function refreshSimProxyHealth(config: SimProxyBridgeConfig): Promise<void> {
+  try {
+    const response = await fetchWithTimeout(
+      `${config.baseUrl}/health`,
+      {
+        method: 'GET',
+        headers: {
+          authorization: `Bearer ${config.token}`,
+        },
+      },
+      SIM_PROXY_STATUS_HEALTH_TIMEOUT_MS,
+    );
+
+    if (!response.ok) {
+      throw new Error(`health 请求失败：${response.status}`);
+    }
+
+    const json = (await response.json()) as {
+      ok?: unknown;
+      data?: {
+        status?: unknown;
+        pendingJobs?: unknown;
+        waitingResults?: unknown;
+        waitingPollers?: unknown;
+      };
+    };
+
+    const healthData = json.data;
+    updateSimProxyHealth({
+      ok: json.ok === true,
+      status: healthData?.status === 'up' ? 'up' : 'unknown',
+      pendingJobs: typeof healthData?.pendingJobs === 'number' ? Math.max(0, Math.round(healthData.pendingJobs)) : null,
+      waitingResults:
+        typeof healthData?.waitingResults === 'number' ? Math.max(0, Math.round(healthData.waitingResults)) : null,
+      waitingPollers:
+        typeof healthData?.waitingPollers === 'number' ? Math.max(0, Math.round(healthData.waitingPollers)) : null,
+      lastCheckedAt: Date.now(),
+      lastError: '',
+    });
+  } catch (error) {
+    updateSimProxyHealth({
+      ok: false,
+      status: 'down',
+      lastCheckedAt: Date.now(),
+      lastError: toErrorMessage(error, 'health 检查失败'),
+    });
+  }
+}
+
+async function buildSimProxyBridgeStatusPayload(): Promise<SimProxyBridgeStatusPayload> {
+  const config = await getSimProxyBridgeConfig();
+  const hasToken = config.token.trim().length > 0;
+
+  if (isSimProxyBridgeEnabled(config)) {
+    await refreshSimProxyHealth(config);
+  } else {
+    updateSimProxyHealth({
+      ok: false,
+      status: 'unknown',
+      pendingJobs: null,
+      waitingResults: null,
+      waitingPollers: null,
+      lastCheckedAt: Date.now(),
+      lastError: hasToken ? '' : '未配置 BRIDGE_TOKEN',
+    });
+  }
+
+  const baseState = {
+    config: {
+      enabled: isSimProxyBridgeEnabled(config),
+      baseUrl: config.baseUrl,
+      hasToken,
+    },
+    health: simProxyRuntimeState.health,
+    poll: {
+      loopRunning: simProxyPollLoopRunning,
+      lastPollAt: simProxyRuntimeState.poll.lastPollAt,
+      lastPollOkAt: simProxyRuntimeState.poll.lastPollOkAt,
+      lastPollError: simProxyRuntimeState.poll.lastPollError,
+    },
+    dispatch: {
+      pendingResultCount: simProxyPendingRequests.size,
+      lastJobId: simProxyRuntimeState.dispatch.lastJobId,
+      lastOrigin: simProxyRuntimeState.dispatch.lastOrigin,
+      lastDispatchAt: simProxyRuntimeState.dispatch.lastDispatchAt,
+      lastDispatchError: simProxyRuntimeState.dispatch.lastDispatchError,
+    },
+    result: {
+      lastResultReceivedAt: simProxyRuntimeState.result.lastResultReceivedAt,
+      lastResultPostedAt: simProxyRuntimeState.result.lastResultPostedAt,
+      lastResultPostError: simProxyRuntimeState.result.lastResultPostError,
+    },
+  };
+
+  const level = getSimProxyStatusLevel(baseState);
+
+  const payload: SimProxyBridgeStatusPayload = {
+    checkedAt: Date.now(),
+    level,
+    summary: '',
+    ...baseState,
+  };
+
+  payload.summary = getSimProxyStatusSummary(level, payload);
+  return payload;
+}
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -451,9 +703,16 @@ function rejectPendingSimProxyResult(requestId: string, message: string): void {
 }
 
 async function executeSimProxyJob(job: SimProxyBridgeJob): Promise<SimProxyResultPayload> {
+  simProxyRuntimeState.dispatch.lastJobId = job.id;
+  simProxyRuntimeState.dispatch.lastOrigin = job.origin;
+  simProxyRuntimeState.dispatch.lastDispatchAt = Date.now();
+  simProxyRuntimeState.dispatch.lastDispatchError = '';
+
   const tabId = await resolveSimProxyTabId(job.origin);
   if (tabId == null) {
-    throw new Error(`未找到已打开的 ${job.origin} 页面，请先打开并登录。`);
+    const message = `未找到已打开的 ${job.origin} 页面，请先打开并登录。`;
+    simProxyRuntimeState.dispatch.lastDispatchError = message;
+    throw new Error(message);
   }
 
   const payload: SimProxyExecutePayload = {
@@ -474,7 +733,9 @@ async function executeSimProxyJob(job: SimProxyBridgeJob): Promise<SimProxyResul
       payload,
     } satisfies SimProxyBackgroundRequest);
   } catch (error) {
-    rejectPendingSimProxyResult(job.id, '发送执行请求到目标站点页面失败，请刷新页面后重试。');
+    const message = '发送执行请求到目标站点页面失败，请刷新页面后重试。';
+    simProxyRuntimeState.dispatch.lastDispatchError = message;
+    rejectPendingSimProxyResult(job.id, message);
     throw error;
   }
 
@@ -491,21 +752,30 @@ async function postSimProxyBridgeResult(
         error: string;
       },
 ): Promise<void> {
-  await fetchWithTimeout(
-    `${config.baseUrl}/v1/extension/result`,
-    {
-      method: 'POST',
-      headers: createBridgeHeaders(config),
-      body: JSON.stringify({
-        id: jobId,
-        ...result,
-      }),
-    },
-    SIM_PROXY_RESULT_POST_TIMEOUT_MS,
-  );
+  try {
+    await fetchWithTimeout(
+      `${config.baseUrl}/v1/extension/result`,
+      {
+        method: 'POST',
+        headers: createBridgeHeaders(config),
+        body: JSON.stringify({
+          id: jobId,
+          ...result,
+        }),
+      },
+      SIM_PROXY_RESULT_POST_TIMEOUT_MS,
+    );
+    simProxyRuntimeState.result.lastResultPostedAt = Date.now();
+    simProxyRuntimeState.result.lastResultPostError = '';
+  } catch (error) {
+    simProxyRuntimeState.result.lastResultPostError = toErrorMessage(error, '结果回传失败');
+    throw error;
+  }
 }
 
 async function pollSimProxyBridgeJob(config: SimProxyBridgeConfig): Promise<SimProxyBridgeJob | null> {
+  simProxyRuntimeState.poll.lastPollAt = Date.now();
+
   const response = await fetchWithTimeout(
     `${config.baseUrl}/v1/extension/poll`,
     {
@@ -519,6 +789,8 @@ async function pollSimProxyBridgeJob(config: SimProxyBridgeConfig): Promise<SimP
   );
 
   if (response.status === 204) {
+    simProxyRuntimeState.poll.lastPollOkAt = Date.now();
+    simProxyRuntimeState.poll.lastPollError = '';
     return null;
   }
 
@@ -532,8 +804,11 @@ async function pollSimProxyBridgeJob(config: SimProxyBridgeConfig): Promise<SimP
     throw new Error('本地服务返回了无效任务');
   }
 
+  simProxyRuntimeState.poll.lastPollOkAt = Date.now();
+  simProxyRuntimeState.poll.lastPollError = '';
   return parsed;
 }
+
 
 async function runSimProxyPollLoop(): Promise<void> {
   if (simProxyPollLoopRunning) {
@@ -564,7 +839,8 @@ async function runSimProxyPollLoop(): Promise<void> {
           error: error instanceof Error ? error.message : '本地接口代理执行失败',
         });
       }
-    } catch {
+    } catch (error) {
+      simProxyRuntimeState.poll.lastPollError = toErrorMessage(error, '轮询本地服务失败');
       await sleep(SIM_PROXY_RETRY_DELAY_MS);
     }
   }
@@ -1103,7 +1379,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
     type === CAPTURE_EXPORT ||
     type === CAPTURE_APPEND;
 
-  const isSimProxyRequest = type === SIM_PROXY_EXECUTE || type === SIM_PROXY_RESULT;
+  const isSimProxyRequest = type === SIM_PROXY_EXECUTE || type === SIM_PROXY_RESULT || type === SIM_PROXY_STATUS;
   const isNativeHostRequest = type === NATIVE_HOST_STATUS || type === NATIVE_HOST_START || type === NATIVE_HOST_STOP;
 
   if (!isNotionRequest && !isCaptureRequest && !isSimProxyRequest && !isNativeHostRequest) {
@@ -1205,12 +1481,23 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
       if (isSimProxyRequest) {
         const request = message as Partial<SimProxyBackgroundRequest>;
 
+        if (request.type === SIM_PROXY_STATUS) {
+          const statusPayload = await buildSimProxyBridgeStatusPayload();
+          const response: SimProxyBackgroundResponse<SimProxyBridgeStatusPayload> = {
+            ok: true,
+            data: statusPayload,
+          };
+          sendResponse(response);
+          return;
+        }
+
         if (request.type === SIM_PROXY_RESULT) {
           const payload = request.payload;
           if (!payload || !isSimProxyResultPayload(payload)) {
             throw new Error('本地接口代理响应数据无效');
           }
 
+          simProxyRuntimeState.result.lastResultReceivedAt = Date.now();
           resolvePendingSimProxyResult(payload);
           const response: SimProxyBackgroundResponse<{ accepted: boolean }> = {
             ok: true,

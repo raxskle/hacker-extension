@@ -18,6 +18,11 @@ import {
   type SimProxyBridgeConfig,
 } from '../shared/types';
 import {
+  requestSimProxyStatus,
+  type SimProxyBridgeStatusPayload,
+  type SimProxyStatusLevel,
+} from '../shared/simProxy';
+import {
   parseNativeHostError,
   requestNativeHostStart,
   requestNativeHostStatus,
@@ -126,6 +131,47 @@ function formatNativeHostActionError(action: NativeHostAction, error: unknown): 
   return `${label}失败（${parsed.code}）：${parsed.message} 建议：${suggestion}`;
 }
 
+function formatStatusTime(value: number | null): string {
+  if (!value) {
+    return '-';
+  }
+
+  return new Date(value).toLocaleString();
+}
+
+function formatStatusCount(value: number | null): string {
+  return typeof value === 'number' ? String(value) : '-';
+}
+
+function getLevelClassName(level: SimProxyStatusLevel): 'ok' | 'warn' | 'error' {
+  if (level === 'warn' || level === 'error') {
+    return level;
+  }
+
+  return 'ok';
+}
+
+function getLevelLabel(level: SimProxyStatusLevel): string {
+  if (level === 'warn') {
+    return '告警';
+  }
+
+  if (level === 'error') {
+    return '异常';
+  }
+
+  return '正常';
+}
+
+function renderStatusRow(label: string, value: string) {
+  return (
+    <div className="bridge-status-row">
+      <span className="bridge-status-label">{label}</span>
+      <span className="bridge-status-value">{value}</span>
+    </div>
+  );
+}
+
 export default function App() {
   const [store, setStore] = useState<PresetGroupStore>(DEFAULT_PRESET_GROUP_STORE);
   const [newGroupInput, setNewGroupInput] = useState('');
@@ -133,6 +179,8 @@ export default function App() {
   const [simProxyConfig, setSimProxyConfig] = useState<SimProxyBridgeConfig>(DEFAULT_SIM_PROXY_BRIDGE_CONFIG);
   const [nativeState, setNativeState] = useState<NativeHostState | null>(null);
   const [nativeBusy, setNativeBusy] = useState(false);
+  const [simProxyStatus, setSimProxyStatus] = useState<SimProxyBridgeStatusPayload | null>(null);
+  const [simProxyBusy, setSimProxyBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -163,6 +211,27 @@ export default function App() {
     }
   }
 
+  async function refreshSimProxyStatus(options?: { silent?: boolean; showNotice?: boolean }) {
+    try {
+      setSimProxyBusy(true);
+      const payload = await requestSimProxyStatus();
+      setSimProxyStatus(payload);
+      if (!options?.silent) {
+        setErrorMessage('');
+      }
+      if (options?.showNotice) {
+        showNotice(`链路检查完成：${getLevelLabel(payload.level)}`);
+      }
+    } catch (error) {
+      setSimProxyStatus(null);
+      if (!options?.silent) {
+        setErrorMessage(error instanceof Error ? error.message : '链路状态检查失败');
+      }
+    } finally {
+      setSimProxyBusy(false);
+    }
+  }
+
   useEffect(() => {
     void (async () => {
       try {
@@ -178,7 +247,7 @@ export default function App() {
         setErrorMessage(error instanceof Error ? error.message : '读取分组失败');
       }
 
-      await refreshNativeStatus({ silent: true });
+      await Promise.all([refreshNativeStatus({ silent: true }), refreshSimProxyStatus({ silent: true })]);
     })();
   }, []);
 
@@ -322,11 +391,12 @@ export default function App() {
       const payload = await requestNativeHostStart(simProxyConfig.token);
       setNativeState(payload.state);
 
-      const [latestBridgeConfig] = await Promise.all([getSimProxyBridgeConfig()]);
+      const latestBridgeConfig = await getSimProxyBridgeConfig();
       setSimProxyConfig(latestBridgeConfig);
 
       setErrorMessage('');
       showNotice(payload.state.running ? `本地服务运行中（PID: ${payload.state.pid ?? '-'}）` : '本地服务启动请求已发送');
+      await refreshSimProxyStatus({ silent: true });
     } catch (error) {
       setErrorMessage(formatNativeHostActionError('start', error));
     } finally {
@@ -341,6 +411,7 @@ export default function App() {
       setNativeState(payload.state);
       setErrorMessage('');
       showNotice('本地服务已停止');
+      await refreshSimProxyStatus({ silent: true });
     } catch (error) {
       setErrorMessage(formatNativeHostActionError('stop', error));
     } finally {
@@ -366,10 +437,13 @@ export default function App() {
       setSimProxyConfig(latestBridgeConfig);
       setErrorMessage('');
       showNotice('已保存');
+      await refreshSimProxyStatus({ silent: true });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '保存失败');
     }
   }
+
+  const statusLevelClassName = simProxyStatus ? getLevelClassName(simProxyStatus.level) : 'warn';
 
   return (
     <main className="options-page">
@@ -486,6 +560,49 @@ export default function App() {
           <div className={`native-status ${nativeState?.running ? 'running' : 'stopped'}`}>
             本地服务状态：{formatNativeHostStatus(nativeState)}
           </div>
+
+          <div className="bridge-status-head">
+            <span className={`bridge-status-chip ${statusLevelClassName}`}>
+              链路状态：{simProxyStatus ? getLevelLabel(simProxyStatus.level) : '未检查'}
+            </span>
+            <button type="button" disabled={simProxyBusy} onClick={() => void refreshSimProxyStatus({ showNotice: true })}>
+              {simProxyBusy ? '检查中...' : '检查链路'}
+            </button>
+          </div>
+
+          {simProxyStatus ? (
+            <div className="bridge-status-panel">
+              {renderStatusRow('摘要', simProxyStatus.summary)}
+              {renderStatusRow('检查时间', formatStatusTime(simProxyStatus.checkedAt))}
+              {renderStatusRow('Health', `${simProxyStatus.health.status}${simProxyStatus.health.ok ? '' : '（不可达）'}`)}
+              {renderStatusRow(
+                '队列',
+                `pendingJobs=${formatStatusCount(simProxyStatus.health.pendingJobs)} / waitingResults=${formatStatusCount(simProxyStatus.health.waitingResults)} / waitingPollers=${formatStatusCount(simProxyStatus.health.waitingPollers)}`,
+              )}
+              {renderStatusRow(
+                'Poll',
+                `loop=${simProxyStatus.poll.loopRunning ? 'on' : 'off'} / lastOk=${formatStatusTime(simProxyStatus.poll.lastPollOkAt)}`,
+              )}
+              {renderStatusRow(
+                'Dispatch',
+                `pendingResult=${simProxyStatus.dispatch.pendingResultCount} / origin=${simProxyStatus.dispatch.lastOrigin || '-'}`,
+              )}
+              {renderStatusRow(
+                'Result',
+                `received=${formatStatusTime(simProxyStatus.result.lastResultReceivedAt)} / posted=${formatStatusTime(simProxyStatus.result.lastResultPostedAt)}`,
+              )}
+              {simProxyStatus.health.lastError ? renderStatusRow('Health 错误', simProxyStatus.health.lastError) : null}
+              {simProxyStatus.poll.lastPollError ? renderStatusRow('Poll 错误', simProxyStatus.poll.lastPollError) : null}
+              {simProxyStatus.dispatch.lastDispatchError
+                ? renderStatusRow('Dispatch 错误', simProxyStatus.dispatch.lastDispatchError)
+                : null}
+              {simProxyStatus.result.lastResultPostError
+                ? renderStatusRow('Result 错误', simProxyStatus.result.lastResultPostError)
+                : null}
+            </div>
+          ) : (
+            <div className="bridge-status-empty">尚未获取链路状态，点击“检查链路”。</div>
+          )}
 
           <p className="hint">本地服务启动后将自动连接代理链路，无需手动开关。</p>
 

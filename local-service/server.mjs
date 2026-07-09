@@ -38,6 +38,94 @@ const EXPOSED_TARGET_ENDPOINTS = [
   SEM_KEYWORDS_GET_INFO_PUBLIC_ENDPOINT,
 ];
 
+const ENDPOINT_FIELD_CONTRACTS = Object.freeze({
+  landingPages: Object.freeze({
+    key: Object.freeze({ aliases: ['key'] }),
+    country: Object.freeze({ aliases: ['country'] }),
+    latest: Object.freeze({ aliases: ['latest'] }),
+    from: Object.freeze({ aliases: ['from'] }),
+    to: Object.freeze({ aliases: ['to'] }),
+    webSource: Object.freeze({ aliases: ['webSource', 'websource'] }),
+    sourceType: Object.freeze({ aliases: ['sourceType'] }),
+    sort: Object.freeze({ aliases: ['sort'] }),
+    asc: Object.freeze({ aliases: ['asc'] }),
+    includeSubDomains: Object.freeze({ aliases: ['includeSubDomains'] }),
+    isWindow: Object.freeze({ aliases: ['isWindow'] }),
+    page: Object.freeze({ aliases: ['page'] }),
+    searchType: Object.freeze({ aliases: ['searchType'] }),
+    orderBy: Object.freeze({ aliases: ['orderBy'] }),
+    timeoutMs: Object.freeze({ aliases: ['timeoutMs'] }),
+    waitTimeoutMs: Object.freeze({ aliases: ['waitTimeoutMs'] }),
+    requestId: Object.freeze({ aliases: ['requestId'] }),
+    origin: Object.freeze({ aliases: ['origin'] }),
+  }),
+  landingPagesDrillDown: Object.freeze({
+    key: Object.freeze({ aliases: ['key'] }),
+    landingPage: Object.freeze({ aliases: ['landingPage'] }),
+    country: Object.freeze({ aliases: ['country'] }),
+    latest: Object.freeze({ aliases: ['latest'] }),
+    from: Object.freeze({ aliases: ['from'] }),
+    to: Object.freeze({ aliases: ['to'] }),
+    webSource: Object.freeze({ aliases: ['webSource', 'websource'] }),
+    sourceType: Object.freeze({ aliases: ['sourceType'] }),
+    sort: Object.freeze({ aliases: ['sort'] }),
+    asc: Object.freeze({ aliases: ['asc'] }),
+    rowsPerPage: Object.freeze({ aliases: ['rowsPerPage'] }),
+    includeSubDomains: Object.freeze({ aliases: ['includeSubDomains'] }),
+    isWindow: Object.freeze({ aliases: ['isWindow'] }),
+    searchType: Object.freeze({ aliases: ['searchType'] }),
+    change: Object.freeze({ aliases: ['change'] }),
+    timeoutMs: Object.freeze({ aliases: ['timeoutMs'] }),
+    waitTimeoutMs: Object.freeze({ aliases: ['waitTimeoutMs'] }),
+    requestId: Object.freeze({ aliases: ['requestId'] }),
+    origin: Object.freeze({ aliases: ['origin'] }),
+  }),
+  keywordSuggest: Object.freeze({
+    keyword: Object.freeze({ aliases: ['keyword'] }),
+    country: Object.freeze({ aliases: ['country'] }),
+    latest: Object.freeze({ aliases: ['latest'] }),
+    from: Object.freeze({ aliases: ['from'] }),
+    to: Object.freeze({ aliases: ['to'] }),
+    isWindow: Object.freeze({ aliases: ['isWindow'] }),
+    websource: Object.freeze({ aliases: ['websource', 'webSource'] }),
+    sort: Object.freeze({ aliases: ['sort'] }),
+    asc: Object.freeze({ aliases: ['asc'] }),
+    rangeFilter: Object.freeze({ aliases: ['rangeFilter'] }),
+    rowsPerPage: Object.freeze({ aliases: ['rowsPerPage'] }),
+    type: Object.freeze({ aliases: ['type'] }),
+    page: Object.freeze({ aliases: ['page'] }),
+    orderBy: Object.freeze({ aliases: ['orderBy'] }),
+    timeoutMs: Object.freeze({ aliases: ['timeoutMs'] }),
+    waitTimeoutMs: Object.freeze({ aliases: ['waitTimeoutMs'] }),
+    requestId: Object.freeze({ aliases: ['requestId'] }),
+    origin: Object.freeze({ aliases: ['origin'] }),
+  }),
+  semIdeasGetKeywords: Object.freeze({
+    __gmitm: Object.freeze({ aliases: ['__gmitm', 'gmitm'] }),
+    requestBody: Object.freeze({ aliases: ['requestBody'] }),
+    timeoutMs: Object.freeze({ aliases: ['timeoutMs'] }),
+    waitTimeoutMs: Object.freeze({ aliases: ['waitTimeoutMs'] }),
+    requestId: Object.freeze({ aliases: ['requestId'] }),
+    origin: Object.freeze({ aliases: ['origin'] }),
+  }),
+  semIdeasGetKeywordsSummary: Object.freeze({
+    __gmitm: Object.freeze({ aliases: ['__gmitm', 'gmitm'] }),
+    requestBody: Object.freeze({ aliases: ['requestBody'] }),
+    timeoutMs: Object.freeze({ aliases: ['timeoutMs'] }),
+    waitTimeoutMs: Object.freeze({ aliases: ['waitTimeoutMs'] }),
+    requestId: Object.freeze({ aliases: ['requestId'] }),
+    origin: Object.freeze({ aliases: ['origin'] }),
+  }),
+  semKeywordsGetInfo: Object.freeze({
+    __gmitm: Object.freeze({ aliases: ['__gmitm', 'gmitm'] }),
+    requestBody: Object.freeze({ aliases: ['requestBody'] }),
+    timeoutMs: Object.freeze({ aliases: ['timeoutMs'] }),
+    waitTimeoutMs: Object.freeze({ aliases: ['waitTimeoutMs'] }),
+    requestId: Object.freeze({ aliases: ['requestId'] }),
+    origin: Object.freeze({ aliases: ['origin'] }),
+  }),
+});
+
 /** @type {Array<{id: string, method: string, path: string, headers: Record<string,string>, body: string, timeoutMs: number, origin: string}>} */
 const jobQueue = [];
 
@@ -199,6 +287,106 @@ function normalizeDateBucket(value) {
   return null;
 }
 
+function isPlainObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasOwn(input, key) {
+  return Object.prototype.hasOwnProperty.call(input, key);
+}
+
+function parseIntegerInRange(value, min, max, fallback, fieldName) {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+
+  let parsed = value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return fallback;
+    }
+
+    parsed = Number(trimmed);
+  }
+
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${fieldName} 必须为数字`);
+  }
+
+  return Math.min(max, Math.max(min, Math.round(parsed)));
+}
+
+function parseBoolean(value, fallback, fieldName) {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') {
+      return true;
+    }
+
+    if (normalized === 'false') {
+      return false;
+    }
+  }
+
+  throw new Error(`${fieldName} 必须为 true 或 false`);
+}
+
+function parseDateBucket(value, fieldName) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const normalized = normalizeDateBucket(value);
+  if (normalized) {
+    return normalized;
+  }
+
+  throw new Error(`${fieldName} 格式必须为 YYYY|MM|DD`);
+}
+
+function toMergedParams(req, bodyInput, contract) {
+  const body = isPlainObject(bodyInput) ? bodyInput : {};
+  const url = new URL(req.url || '/', `http://${req.headers.host || `${HOST}:${PORT}`}`);
+  const query = url.searchParams;
+  const merged = {};
+
+  for (const [canonicalName, fieldConfig] of Object.entries(contract)) {
+    const aliases = Array.isArray(fieldConfig?.aliases) && fieldConfig.aliases.length > 0 ? fieldConfig.aliases : [canonicalName];
+
+    let value;
+    for (const alias of aliases) {
+      if (hasOwn(body, alias)) {
+        value = body[alias];
+        break;
+      }
+    }
+
+    if (value === undefined) {
+      for (const alias of aliases) {
+        if (query.has(alias)) {
+          value = query.get(alias);
+          break;
+        }
+      }
+    }
+
+    if (value !== undefined) {
+      merged[canonicalName] = value;
+    }
+  }
+
+  return merged;
+}
+
 function enqueueJob(job) {
   const waiter = pollWaiters.shift();
   if (waiter) {
@@ -279,20 +467,20 @@ function createLandingPagesPath(paramsInput) {
 
   const country = normalizeNonEmptyString(paramsInput?.country, '999');
   const latest = normalizeNonEmptyString(paramsInput?.latest, '28d');
-  const webSource = normalizeNonEmptyString(paramsInput?.webSource, 'Total');
+  const webSource = normalizeNonEmptyString(paramsInput?.webSource ?? paramsInput?.websource, 'Total');
   const sourceType = normalizeNonEmptyString(paramsInput?.sourceType, 'organic');
   const sort = normalizeNonEmptyString(paramsInput?.sort, 'ClicksShare');
   const searchType = normalizeNonEmptyString(paramsInput?.searchType, 'domain');
-  const asc = normalizeBoolean(paramsInput?.asc, false);
-  const includeSubDomains = normalizeBoolean(paramsInput?.includeSubDomains, true);
-  const isWindow = normalizeBoolean(paramsInput?.isWindow, true);
-  const page = clamp(paramsInput?.page, 1, 500, 1);
+  const asc = parseBoolean(paramsInput?.asc, false, 'asc');
+  const includeSubDomains = parseBoolean(paramsInput?.includeSubDomains, true, 'includeSubDomains');
+  const isWindow = parseBoolean(paramsInput?.isWindow, true, 'isWindow');
+  const page = parseIntegerInRange(paramsInput?.page, 1, 500, 1, 'page');
 
-  const from = normalizeDateBucket(paramsInput?.from);
-  const to = normalizeDateBucket(paramsInput?.to);
+  const from = parseDateBucket(paramsInput?.from, 'from');
+  const to = parseDateBucket(paramsInput?.to, 'to');
 
   const pageFilterJson = JSON.stringify([{ url: key, searchType }]);
-  const orderBy = `${sort} ${asc ? 'asc' : 'desc'}`;
+  const orderBy = normalizeNonEmptyString(paramsInput?.orderBy, `${sort} ${asc ? 'asc' : 'desc'}`);
 
   const query = new URLSearchParams();
   query.set('country', country);
@@ -344,18 +532,18 @@ function createLandingPagesKeywordDrillDownPath(paramsInput) {
 
   const country = normalizeNonEmptyString(paramsInput?.country, '999');
   const latest = normalizeNonEmptyString(paramsInput?.latest, '28d');
-  const webSource = normalizeNonEmptyString(paramsInput?.webSource, 'Total');
+  const webSource = normalizeNonEmptyString(paramsInput?.webSource ?? paramsInput?.websource, 'Total');
   const sourceType = normalizeNonEmptyString(paramsInput?.sourceType, 'organic');
   const sort = normalizeNonEmptyString(paramsInput?.sort, 'ClicksShare');
   const searchType = normalizeNonEmptyString(paramsInput?.searchType, 'domain');
   const change = normalizeNonEmptyString(paramsInput?.change, 'New');
-  const asc = normalizeBoolean(paramsInput?.asc, false);
-  const includeSubDomains = normalizeBoolean(paramsInput?.includeSubDomains, true);
-  const isWindow = normalizeBoolean(paramsInput?.isWindow, true);
-  const rowsPerPage = clamp(paramsInput?.rowsPerPage, 1, 500, 50);
+  const asc = parseBoolean(paramsInput?.asc, false, 'asc');
+  const includeSubDomains = parseBoolean(paramsInput?.includeSubDomains, true, 'includeSubDomains');
+  const isWindow = parseBoolean(paramsInput?.isWindow, true, 'isWindow');
+  const rowsPerPage = parseIntegerInRange(paramsInput?.rowsPerPage, 1, 500, 50, 'rowsPerPage');
 
-  const from = normalizeDateBucket(paramsInput?.from);
-  const to = normalizeDateBucket(paramsInput?.to);
+  const from = parseDateBucket(paramsInput?.from, 'from');
+  const to = parseDateBucket(paramsInput?.to, 'to');
 
   const pageFilterJson = JSON.stringify([{ url: key, searchType }]);
 
@@ -407,12 +595,15 @@ function createKeywordGeneratorSuggestPath(paramsInput) {
   const sort = normalizeNonEmptyString(paramsInput?.sort, 'windowVolume');
   const type = normalizeNonEmptyString(paramsInput?.type, 'Broad');
   const rangeFilter = normalizeNonEmptyString(paramsInput?.rangeFilter, '');
-  const asc = normalizeBoolean(paramsInput?.asc, false);
-  const isWindow = normalizeBoolean(paramsInput?.isWindow, true);
-  const rowsPerPage = clamp(paramsInput?.rowsPerPage, 1, 500, 100);
+  const asc = parseBoolean(paramsInput?.asc, false, 'asc');
+  const isWindow = parseBoolean(paramsInput?.isWindow, true, 'isWindow');
+  const rowsPerPage = parseIntegerInRange(paramsInput?.rowsPerPage, 1, 500, 100, 'rowsPerPage');
+  const page = parseIntegerInRange(paramsInput?.page, 1, 500, 1, 'page');
 
-  const from = normalizeDateBucket(paramsInput?.from);
-  const to = normalizeDateBucket(paramsInput?.to);
+  const from = parseDateBucket(paramsInput?.from, 'from');
+  const to = parseDateBucket(paramsInput?.to, 'to');
+
+  const orderBy = normalizeNonEmptyString(paramsInput?.orderBy, `${sort} ${asc ? 'asc' : 'desc'}`);
 
   const query = new URLSearchParams();
   query.set('keyword', keyword);
@@ -431,6 +622,8 @@ function createKeywordGeneratorSuggestPath(paramsInput) {
     query.set('rangeFilter', rangeFilter);
   }
   query.set('rowsPerPage', String(rowsPerPage));
+  query.set('orderBy', orderBy);
+  query.set('page', String(page));
   query.set('type', type);
   query.set('latest', latest);
 
@@ -605,8 +798,12 @@ async function handleBridgeQueryRequest(req, res, options = {}) {
     return;
   }
 
+  const contract = isPlainObject(options?.contract) ? options.contract : ENDPOINT_FIELD_CONTRACTS.landingPages;
+  const params = toMergedParams(req, body, contract);
+
   const buildQuery = typeof options?.buildQuery === 'function' ? options.buildQuery : createLandingPagesPath;
   const method = typeof options?.method === 'string' ? options.method.trim().toUpperCase() : 'POST';
+  const allowRequestBodyOverride = options?.allowRequestBodyOverride === true;
   if (!ALLOWED_METHODS.has(method)) {
     sendJson(res, 400, {
       ok: false,
@@ -617,7 +814,7 @@ async function handleBridgeQueryRequest(req, res, options = {}) {
 
   let queryConfig;
   try {
-    queryConfig = buildQuery(body);
+    queryConfig = buildQuery(params);
   } catch (error) {
     sendJson(res, 400, {
       ok: false,
@@ -626,14 +823,29 @@ async function handleBridgeQueryRequest(req, res, options = {}) {
     return;
   }
 
-  const requestId = typeof body?.requestId === 'string' && body.requestId.trim() ? body.requestId.trim() : randomUUID();
-  const timeoutMs = clamp(body?.timeoutMs, 1_000, MAX_SIM_TIMEOUT_MS, DEFAULT_SIM_TIMEOUT_MS);
-  const waitTimeoutMs = clamp(body?.waitTimeoutMs, 1_000, MAX_WAIT_TIMEOUT_MS, DEFAULT_WAIT_TIMEOUT_MS);
+  const requestId = typeof params?.requestId === 'string' && params.requestId.trim() ? params.requestId.trim() : randomUUID();
+
+  let timeoutMs;
+  let waitTimeoutMs;
+  try {
+    timeoutMs = parseIntegerInRange(params?.timeoutMs, 1_000, MAX_SIM_TIMEOUT_MS, DEFAULT_SIM_TIMEOUT_MS, 'timeoutMs');
+    waitTimeoutMs = parseIntegerInRange(params?.waitTimeoutMs, 1_000, MAX_WAIT_TIMEOUT_MS, DEFAULT_WAIT_TIMEOUT_MS, 'waitTimeoutMs');
+  } catch (error) {
+    sendJson(res, 400, {
+      ok: false,
+      error: { code: 'INVALID_PARAMS', message: error instanceof Error ? error.message : '参数无效' },
+      meta: { requestId },
+    });
+    return;
+  }
 
   const requestedOriginFromOptions = typeof options?.origin === 'string' ? options.origin.trim() : '';
-  const requestedOriginFromBody = typeof body?.origin === 'string' ? body.origin.trim() : '';
+  const requestedOriginFromBody = typeof params?.origin === 'string' ? params.origin.trim() : '';
   const requestedOrigin = requestedOriginFromOptions || requestedOriginFromBody;
   const origin = ALLOWED_TARGET_ORIGINS.has(requestedOrigin) ? requestedOrigin : DEFAULT_TARGET_ORIGIN;
+
+  const canOverrideRequestBody = method !== 'GET' && allowRequestBodyOverride;
+  const overrideBody = canOverrideRequestBody ? params?.requestBody : undefined;
 
   const job = {
     id: requestId,
@@ -643,8 +855,8 @@ async function handleBridgeQueryRequest(req, res, options = {}) {
     body:
       method === 'GET'
         ? ''
-        : typeof body?.requestBody === 'string'
-          ? body.requestBody
+        : typeof overrideBody === 'string'
+          ? overrideBody
           : typeof queryConfig.requestBody === 'string'
             ? queryConfig.requestBody
             : '',
@@ -660,6 +872,8 @@ async function handleLandingPagesRequest(req, res, options = {}) {
     ...options,
     method: 'POST',
     buildQuery: createLandingPagesPath,
+    contract: ENDPOINT_FIELD_CONTRACTS.landingPages,
+    allowRequestBodyOverride: false,
   });
 }
 
@@ -668,6 +882,8 @@ async function handleLandingPagesKeywordDrillDownRequest(req, res, options = {})
     ...options,
     method: 'GET',
     buildQuery: createLandingPagesKeywordDrillDownPath,
+    contract: ENDPOINT_FIELD_CONTRACTS.landingPagesDrillDown,
+    allowRequestBodyOverride: false,
   });
 }
 
@@ -676,6 +892,8 @@ async function handleKeywordGeneratorSuggestRequest(req, res, options = {}) {
     ...options,
     method: 'POST',
     buildQuery: createKeywordGeneratorSuggestPath,
+    contract: ENDPOINT_FIELD_CONTRACTS.keywordSuggest,
+    allowRequestBodyOverride: false,
   });
 }
 
@@ -684,6 +902,8 @@ async function handleSemIdeasGetKeywordsRequest(req, res, options = {}) {
     ...options,
     method: 'POST',
     buildQuery: createSemIdeasGetKeywordsPath,
+    contract: ENDPOINT_FIELD_CONTRACTS.semIdeasGetKeywords,
+    allowRequestBodyOverride: true,
   });
 }
 
@@ -692,6 +912,8 @@ async function handleSemIdeasGetKeywordsSummaryRequest(req, res, options = {}) {
     ...options,
     method: 'POST',
     buildQuery: createSemIdeasGetKeywordsSummaryPath,
+    contract: ENDPOINT_FIELD_CONTRACTS.semIdeasGetKeywordsSummary,
+    allowRequestBodyOverride: true,
   });
 }
 
@@ -700,6 +922,8 @@ async function handleSemKeywordsGetInfoRequest(req, res, options = {}) {
     ...options,
     method: 'POST',
     buildQuery: createSemKeywordsGetInfoPath,
+    contract: ENDPOINT_FIELD_CONTRACTS.semKeywordsGetInfo,
+    allowRequestBodyOverride: true,
   });
 }
 

@@ -39,7 +39,16 @@ Content-Type: application/json
 - 插件在页面内发起**真实目标请求前**，会额外等待一个 `400ms ~ 1000ms` 的随机延迟；
 - 页面侧真实请求按**串行队列**执行，同一时间只会有 1 个请求 in-flight；
 - 当短时间内提交多个请求时，后续请求会在本地服务和插件链路中排队等待；
-- 因为存在排队与延迟，建议按需调大 `waitTimeoutMs`。
+### 0.4 参数读取与校验规则
+
+- 所有业务端点均支持 **body + URL query** 传参。
+- 若同名字段同时存在于 body 与 query：**body 优先**。
+- 字段校验为严格模式：
+  - 日期必须为 `YYYY|MM|DD`
+  - 布尔必须为 `true/false`
+  - 数字字段必须是数字（支持数字字符串）
+- SIM 专用接口（`/sim/...`）不支持 `requestBody` 覆盖上游 body。
+- SEM JSON-RPC 专用接口（`/sem/...`）必须提供 `requestBody`，并校验固定 `method`。
 
 ---
 
@@ -68,10 +77,11 @@ Content-Type: application/json
 | `latest` | string | 否 | `28d` | 时间窗口 |
 | `from` | string | 否 | - | 起始日期，格式 `YYYY\|MM\|DD` |
 | `to` | string | 否 | - | 结束日期，格式 `YYYY\|MM\|DD` |
-| `webSource` | string | 否 | `Total` | 数据来源 |
+| `webSource` | string | 否 | `Total` | 数据来源（兼容别名 `websource`） |
 | `sourceType` | string | 否 | `organic` | 来源类型 |
 | `sort` | string | 否 | `ClicksShare` | 排序字段 |
 | `asc` | boolean | 否 | `false` | 是否升序 |
+| `orderBy` | string | 否 | `${sort} ${asc ? 'asc' : 'desc'}` | 排序表达式；不传时自动派生 |
 | `includeSubDomains` | boolean | 否 | `true` | 是否包含子域名 |
 | `isWindow` | boolean | 否 | `true` | 是否窗口模式 |
 | `page` | number | 否 | `1` | 页码，范围 `[1, 500]` |
@@ -193,7 +203,7 @@ fetch("https://sim.3ue.co/api/websiteOrganicLandingPagesV2?country=999&to=2026%7
 | `latest` | string | 否 | `28d` | 时间窗口 |
 | `from` | string | 否 | - | 起始日期，格式 `YYYY\|MM\|DD` |
 | `to` | string | 否 | - | 结束日期，格式 `YYYY\|MM\|DD` |
-| `webSource` | string | 否 | `Total` | 数据来源 |
+| `webSource` | string | 否 | `Total` | 数据来源（兼容别名 `websource`） |
 | `sourceType` | string | 否 | `organic` | 来源类型 |
 | `sort` | string | 否 | `ClicksShare` | 排序字段 |
 | `asc` | boolean | 否 | `false` | 是否升序 |
@@ -325,8 +335,10 @@ fetch("https://sim.3ue.co/api/websiteOrganicLandingPagesV2/GetTableDrillDown?cou
 | `websource` | string | 否 | `Total` | 数据来源（兼容 `webSource`） |
 | `sort` | string | 否 | `windowVolume` | 排序字段 |
 | `asc` | boolean | 否 | `false` | 是否升序 |
+| `orderBy` | string | 否 | `${sort} ${asc ? 'asc' : 'desc'}` | 排序表达式；不传时自动派生 |
 | `rangeFilter` | string | 否 | - | 过滤条件，例如 `cpc,0.1,\|difficulty,1,80` |
 | `rowsPerPage` | number | 否 | `100` | 每页条数，范围 `[1, 500]` |
+| `page` | number | 否 | `1` | 页码，范围 `[1, 500]` |
 | `type` | string | 否 | `Broad` | 关键词类型 |
 | `timeoutMs` | number | 否 | `45000` | 页面请求超时（ms），上限 `180000` |
 | `waitTimeoutMs` | number | 否 | `120000` | 本地服务等待扩展回包超时（ms），上限 `300000` |
@@ -347,8 +359,10 @@ curl -X POST http://127.0.0.1:17311/sim/api/KeywordGenerator/google/suggest \
     "websource": "Total",
     "sort": "windowVolume",
     "asc": false,
+    "orderBy": "windowVolume desc",
     "rangeFilter": "cpc,0.1,|difficulty,1,80",
     "rowsPerPage": 100,
+    "page": 2,
     "type": "Broad",
     "latest": "28d"
   }'
@@ -357,7 +371,7 @@ curl -X POST http://127.0.0.1:17311/sim/api/KeywordGenerator/google/suggest \
 ### 插件页面请求示例（真实请求）
 
 ```js
-fetch("https://sim.3ue.co/api/KeywordGenerator/google/suggest?keyword=image+to+text&country=999&from=2026%7C06%7C08&to=2026%7C07%7C05&isWindow=true&websource=Total&sort=windowVolume&asc=false&rangeFilter=cpc%2C0.1%2C%7Cdifficulty%2C1%2C80&rowsPerPage=100&type=Broad&latest=28d", {
+fetch("https://sim.3ue.co/api/KeywordGenerator/google/suggest?keyword=image+to+text&country=999&from=2026%7C06%7C08&to=2026%7C07%7C05&isWindow=true&websource=Total&sort=windowVolume&asc=false&orderBy=windowVolume+desc&rangeFilter=cpc%2C0.1%2C%7Cdifficulty%2C1%2C80&rowsPerPage=100&page=2&type=Broad&latest=28d", {
   "headers": {
     "accept": "application/json",
     "content-type": "application/json; charset=utf-8",

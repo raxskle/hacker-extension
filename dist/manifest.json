@@ -29,7 +29,7 @@
   "content_scripts": [
     {
       "js": [
-        "assets/recorderBridge.ts-loader-B8fSp0A6.js"
+        "assets/recorderBridge.ts-loader-B_wa7UZj.js"
       ],
       "matches": [
         "<all_urls>"
@@ -50,7 +50,7 @@
     },
     {
       "js": [
-        "assets/simProxyBridge.ts-loader-dSRbZuHJ.js"
+        "assets/simProxyBridge.ts-loader-Db8igNLq.js"
       ],
       "matches": [
         "https://sim.3ue.co/*",
@@ -61,7 +61,7 @@
     },
     {
       "js": [
-        "assets/simProxyInjected.ts-loader-CR9fDPjC.js"
+        "assets/simProxyInjected.ts-loader-ISAyHyWC.js"
       ],
       "matches": [
         "https://sim.3ue.co/*",
@@ -73,7 +73,7 @@
     },
     {
       "js": [
-        "assets/main.tsx-loader-CNaugAUB.js"
+        "assets/main.tsx-loader-C1Hd-u33.js"
       ],
       "matches": [
         "<all_urls>"
@@ -90,12 +90,12 @@
         "<all_urls>"
       ],
       "resources": [
-        "assets/capture-BsYPYRW5.js",
-        "assets/recorderBridge.ts-BC8ms8l3.js",
+        "assets/capture-B7vBTewh.js",
+        "assets/recorderBridge.ts-D95VkiDC.js",
         "assets/recorderInjected.ts-BI9MNVNM.js",
         "assets/jsx-runtime-D0XvMYhy.js",
         "assets/storage-DOpb9BAS.js",
-        "assets/main.tsx-Dt-cLQs3.js"
+        "assets/main.tsx-BIvmwc5_.js"
       ],
       "use_dynamic_url": false
     },
@@ -105,9 +105,9 @@
         "https://sim.3ue.co/*"
       ],
       "resources": [
-        "assets/simProxy-PKUfKNHf.js",
-        "assets/simProxyBridge.ts-DCCAFRbZ.js",
-        "assets/simProxyInjected.ts-BXI1P6Lw.js"
+        "assets/simProxy-DkHPA1id.js",
+        "assets/simProxyBridge.ts-b7KV0S7R.js",
+        "assets/simProxyInjected.ts-BcV829-N.js"
       ],
       "use_dynamic_url": false
     }

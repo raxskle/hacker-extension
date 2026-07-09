@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { requestNativeHostStart, requestNativeHostStatus, requestNativeHostStop, type NativeHostState } from '../shared/nativeHost';
+import { requestSimProxyStatus, type SimProxyBridgeStatusPayload, type SimProxyStatusLevel } from '../shared/simProxy';
 import { getPanelEnabled, setPanelEnabled } from '../shared/storage';
 
 function formatNativeHostStatus(state: NativeHostState | null): string {
@@ -7,7 +8,31 @@ function formatNativeHostStatus(state: NativeHostState | null): string {
     return '未检查';
   }
 
-  return state.running ? `运行中（PID: ${state.pid ?? '-'}）` : '未运行';
+  return state.running ? `运行中（PID: ${state.pid ?? '-'})` : '未运行';
+}
+
+function getStatusLabel(level: SimProxyStatusLevel): string {
+  if (level === 'warn') {
+    return '告警';
+  }
+
+  if (level === 'error') {
+    return '异常';
+  }
+
+  return '正常';
+}
+
+function getStatusClassName(level: SimProxyStatusLevel): 'running' | 'warn' | 'stopped' {
+  if (level === 'warn') {
+    return 'warn';
+  }
+
+  if (level === 'error') {
+    return 'stopped';
+  }
+
+  return 'running';
 }
 
 export default function App() {
@@ -15,8 +40,18 @@ export default function App() {
   const [panelBusy, setPanelBusy] = useState(false);
   const [nativeState, setNativeState] = useState<NativeHostState | null>(null);
   const [nativeBusy, setNativeBusy] = useState(false);
+  const [simProxyStatus, setSimProxyStatus] = useState<SimProxyBridgeStatusPayload | null>(null);
+  const [simProxyBusy, setSimProxyBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+
+  const statusClassName = useMemo(() => {
+    if (!simProxyStatus) {
+      return 'warn';
+    }
+
+    return getStatusClassName(simProxyStatus.level);
+  }, [simProxyStatus]);
 
   function showNotice(text: string) {
     setNotice(text);
@@ -32,12 +67,7 @@ export default function App() {
         // keep default value
       }
 
-      try {
-        const payload = await requestNativeHostStatus();
-        setNativeState(payload.state);
-      } catch {
-        setNativeState(null);
-      }
+      await Promise.all([refreshNativeStatus(), refreshSimProxyStatus()]);
     })();
   }, []);
 
@@ -73,13 +103,31 @@ export default function App() {
     }
   }
 
+  async function refreshSimProxyStatus(options?: { showNotice?: boolean }) {
+    try {
+      setSimProxyBusy(true);
+      const payload = await requestSimProxyStatus();
+      setSimProxyStatus(payload);
+      setErrorMessage('');
+      if (options?.showNotice) {
+        showNotice(`链路状态：${getStatusLabel(payload.level)}`);
+      }
+    } catch (error) {
+      setSimProxyStatus(null);
+      setErrorMessage(error instanceof Error ? error.message : '链路状态检查失败');
+    } finally {
+      setSimProxyBusy(false);
+    }
+  }
+
   async function startNativeService() {
     try {
       setNativeBusy(true);
       const payload = await requestNativeHostStart();
       setNativeState(payload.state);
       setErrorMessage('');
-      showNotice(payload.state.running ? `本地服务运行中（PID: ${payload.state.pid ?? '-'}）` : '本地服务启动请求已发送');
+      showNotice(payload.state.running ? `本地服务运行中（PID: ${payload.state.pid ?? '-'})` : '本地服务启动请求已发送');
+      await refreshSimProxyStatus();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '启动本地服务失败');
     } finally {
@@ -94,6 +142,7 @@ export default function App() {
       setNativeState(payload.state);
       setErrorMessage('');
       showNotice('本地服务已停止');
+      await refreshSimProxyStatus();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '停止本地服务失败');
     } finally {
@@ -135,6 +184,26 @@ export default function App() {
             </button>
             <button type="button" className="danger" disabled={nativeBusy} onClick={() => void stopNativeService()}>
               停止
+            </button>
+          </div>
+        </section>
+
+        <section className="popup-section">
+          <div className="section-head">
+            <h2>转发链路</h2>
+            <span className={`status-chip ${statusClassName}`}>
+              {simProxyStatus ? getStatusLabel(simProxyStatus.level) : '未检查'}
+            </span>
+          </div>
+          <div className="native-status">{simProxyStatus?.summary || '点击检查链路获取当前状态'}</div>
+          <div className="native-status subtle">
+            {simProxyStatus
+              ? `队列 pending=${simProxyStatus.health.pendingJobs ?? '-'} / waiting=${simProxyStatus.health.waitingResults ?? '-'}`
+              : '-'}
+          </div>
+          <div className="action-row">
+            <button type="button" disabled={simProxyBusy} onClick={() => void refreshSimProxyStatus({ showNotice: true })}>
+              {simProxyBusy ? '检查中...' : '检查链路'}
             </button>
           </div>
         </section>
