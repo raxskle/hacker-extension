@@ -848,7 +848,7 @@ curl -X POST http://127.0.0.1:17311/sem/kwogw/v2/webapi/keywords.GetInfo \
   -d '{
     "__gmitm": "ayWzA3*l4EVcTpZei43sW*qRvljSdU",
     "requestBody": {
-      "id": 33,
+      "id": 32,
       "jsonrpc": "2.0",
       "method": "keywords.GetInfo",
       "params": {
@@ -868,17 +868,26 @@ curl -X POST http://127.0.0.1:17311/sem/kwogw/v2/webapi/keywords.GetInfo \
 ```js
 fetch("https://sem.3ue.co/kwogw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU", {
   "headers": {
-    "content-type": "application/json; charset=utf-8"
+    "content-type": "application/json; charset=utf-8",
+    "sec-ch-ua": "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
+    "sec-ch-ua-arch": "\"arm\"",
+    "sec-ch-ua-bitness": "\"64\"",
+    "sec-ch-ua-full-version": "\"149.0.7827.201\"",
+    "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"149.0.7827.201\", \"Chromium\";v=\"149.0.7827.201\", \"Not)A;Brand\";v=\"24.0.0.0\"",
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-model": "\"\"",
+    "sec-ch-ua-platform": "\"macOS\"",
+    "sec-ch-ua-platform-version": "\"14.7.8\""
   },
-  "referrer": "https://sem.3ue.co/analytics/keywordoverview/?db=uk&q=image+to+text",
-  "body": "{\"id\":33,\"jsonrpc\":\"2.0\",\"method\":\"keywords.GetInfo\",\"params\":{\"phrase\":\"image to text\",\"device\":0,\"currency\":\"USD\",\"database\":\"us\",\"locati0n\":0,\"date\":\"\"}}",
+  "referrer": "https://sem.3ue.co/analytics/keywordoverview/?db=us&q=text+images&__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU",
+  "body": "{\"id\":32,\"jsonrpc\":\"2.0\",\"method\":\"keywords.GetInfo\",\"params\":{\"phrase\":\"image to text\",\"device\":0,\"currency\":\"USD\",\"database\":\"us\",\"locati0n\":0,\"date\":\"\"}}",
   "method": "POST",
   "mode": "cors",
   "credentials": "omit"
 });
 ```
 
-### 响应示例（已简化）
+### 响应示例（结构完整，keywords 仅保留前 2 项）
 
 #### A. 本地服务返回（统一封装）
 
@@ -887,10 +896,13 @@ fetch("https://sem.3ue.co/kwogw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU
   "ok": true,
   "data": {
     "status": 200,
-    "headers": { "content-type": "application/json" },
-    "body": "{\"jsonrpc\":\"2.0\",\"id\":33,\"result\":{\"keywords\":[...]}}",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "x-service": "kwogw.v2"
+    },
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":32,\"result\":{\"keywords\":[{\"phrase\":\"image to text\",\"database\":\"ae\",\"locati0n\":0,\"volume\":6600,\"cpc\":null,\"competition_level\":null,\"difficulty\":null,\"rds_median\":null,\"intents\":[],\"results\":null,\"serp_features\":[],\"trend\":null,\"serp_id\":\"\",\"serp_updated_at\":0,\"cleaned_phrase\":\"image to text\",\"exact_match\":true,\"update_status\":0,\"status_updated_at\":0},{\"phrase\":\"image to text\",\"database\":\"af\",\"locati0n\":0,\"volume\":480,\"cpc\":null,\"competition_level\":null,\"difficulty\":null,\"rds_median\":null,\"intents\":[],\"results\":null,\"serp_features\":[],\"trend\":null,\"serp_id\":\"\",\"serp_updated_at\":0,\"cleaned_phrase\":\"image to text\",\"exact_match\":true,\"update_status\":0,\"status_updated_at\":0}]}}",
     "truncated": false,
-    "finalUrl": "https://sem.3ue.co/kwogw/v2/webapi?__gmitm=..."
+    "finalUrl": "https://sem.3ue.co/kwogw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU"
   },
   "meta": {
     "requestId": "..."
@@ -898,27 +910,53 @@ fetch("https://sem.3ue.co/kwogw/v2/webapi?__gmitm=ayWzA3*l4EVcTpZei43sW*qRvljSdU
 }
 ```
 
-#### B. `data.body` 解析后的上游响应（节选）
+#### B. `data.body` 解析后的上游响应（结构完整，keywords 仅保留前 2 项）
 
 ```json
 {
   "jsonrpc": "2.0",
-  "id": 33,
+  "id": 32,
   "result": {
     "keywords": [
       {
         "phrase": "image to text",
-        "database": "us",
-        "volume": 60500,
-        "cpc": 1.91,
-        "difficulty": 53
+        "database": "ae",
+        "locati0n": 0,
+        "volume": 6600,
+        "cpc": null,
+        "competition_level": null,
+        "difficulty": null,
+        "rds_median": null,
+        "intents": [],
+        "results": null,
+        "serp_features": [],
+        "trend": null,
+        "serp_id": "",
+        "serp_updated_at": 0,
+        "cleaned_phrase": "image to text",
+        "exact_match": true,
+        "update_status": 0,
+        "status_updated_at": 0
       },
       {
         "phrase": "image to text",
-        "database": "uk",
-        "volume": 22200,
+        "database": "af",
+        "locati0n": 0,
+        "volume": 480,
         "cpc": null,
-        "difficulty": null
+        "competition_level": null,
+        "difficulty": null,
+        "rds_median": null,
+        "intents": [],
+        "results": null,
+        "serp_features": [],
+        "trend": null,
+        "serp_id": "",
+        "serp_updated_at": 0,
+        "cleaned_phrase": "image to text",
+        "exact_match": true,
+        "update_status": 0,
+        "status_updated_at": 0
       }
     ]
   }
