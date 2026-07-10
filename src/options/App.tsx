@@ -371,10 +371,21 @@ export default function App() {
     clearMessages();
   }
 
+  function updateAutoMaintainExecutors(enabled: boolean) {
+    setSimProxyConfig((prev) => ({ ...prev, autoMaintainExecutors: enabled }));
+    clearMessages();
+  }
+
+  function updatePinExecutorTabs(enabled: boolean) {
+    setSimProxyConfig((prev) => ({ ...prev, pinExecutorTabs: enabled }));
+    clearMessages();
+  }
+
   function updateBridgeToken(token: string) {
     setSimProxyConfig((prev) => ({ ...prev, token }));
     clearMessages();
   }
+
 
   async function copyNativeInstallCommand() {
     try {
@@ -641,6 +652,22 @@ export default function App() {
 
           <p className="hint">本地服务启动后将自动连接代理链路，无需手动开关。</p>
 
+          <div className="bridge-status-row">
+            <label className="bridge-status-label">自动维护执行页</label>
+            <input
+              type="checkbox"
+              checked={simProxyConfig.autoMaintainExecutors}
+              onChange={(event) => updateAutoMaintainExecutors(event.target.checked)}
+            />
+          </div>
+          <div className="bridge-status-row">
+            <label className="bridge-status-label">固定（Pin）执行页</label>
+            <input
+              type="checkbox"
+              checked={simProxyConfig.pinExecutorTabs}
+              onChange={(event) => updatePinExecutorTabs(event.target.checked)}
+            />
+          </div>
           <div className="bridge-inputs">
             <input
               value={simProxyConfig.baseUrl}
@@ -653,6 +680,8 @@ export default function App() {
               placeholder="BRIDGE_TOKEN（与本地服务一致）"
             />
           </div>
+
+
         </section>
 
         <div className="actions">

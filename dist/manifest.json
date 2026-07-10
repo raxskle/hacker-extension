@@ -75,7 +75,7 @@
     },
     {
       "js": [
-        "assets/main.tsx-loader-DIVJZRGq.js"
+        "assets/main.tsx-loader-BGlKBv-s.js"
       ],
       "matches": [
         "<all_urls>"
@@ -96,8 +96,8 @@
         "assets/recorderBridge.ts-D95VkiDC.js",
         "assets/recorderInjected.ts-BI9MNVNM.js",
         "assets/jsx-runtime-D0XvMYhy.js",
-        "assets/storage-qIa5b_4r.js",
-        "assets/main.tsx-C8YbblP9.js"
+        "assets/storage-Cp1NEoAh.js",
+        "assets/main.tsx-Ba7tdjYS.js"
       ],
       "use_dynamic_url": false
     },

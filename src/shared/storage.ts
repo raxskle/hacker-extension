@@ -654,6 +654,12 @@ function normalizeSimProxyBridgeConfig(input: unknown): SimProxyBridgeConfig {
     enabled: typeof raw.enabled === 'boolean' ? raw.enabled : DEFAULT_SIM_PROXY_BRIDGE_CONFIG.enabled,
     baseUrl,
     token: typeof raw.token === 'string' ? raw.token.trim() : '',
+    autoMaintainExecutors:
+      typeof raw.autoMaintainExecutors === 'boolean'
+        ? raw.autoMaintainExecutors
+        : DEFAULT_SIM_PROXY_BRIDGE_CONFIG.autoMaintainExecutors,
+    pinExecutorTabs:
+      typeof raw.pinExecutorTabs === 'boolean' ? raw.pinExecutorTabs : DEFAULT_SIM_PROXY_BRIDGE_CONFIG.pinExecutorTabs,
   };
 }
 

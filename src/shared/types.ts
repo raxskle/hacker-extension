@@ -126,6 +126,8 @@ export type SimProxyBridgeConfig = {
   enabled: boolean;
   baseUrl: string;
   token: string;
+  autoMaintainExecutors: boolean;
+  pinExecutorTabs: boolean;
 };
 
 export type SimProxyInFlightRecord = {
@@ -163,6 +165,8 @@ export const DEFAULT_SIM_PROXY_BRIDGE_CONFIG: SimProxyBridgeConfig = {
   enabled: false,
   baseUrl: 'http://127.0.0.1:17311',
   token: '',
+  autoMaintainExecutors: true,
+  pinExecutorTabs: true,
 };
 
 export const DEFAULT_PRESET_GROUP_STORE: PresetGroupStore = {

@@ -126,10 +126,11 @@ const SIM_PROXY_POLL_ALARM_PERIOD_MINUTES = 0.5;
 const SIM_PROXY_SEND_MESSAGE_RETRY_LIMIT = 2;
 const SIM_PROXY_RESULT_POST_RETRY_LIMIT = 3;
 const SIM_PROXY_RESULT_POST_RETRY_BASE_DELAY_MS = 400;
-const SIM_PROXY_EXECUTOR_HEARTBEAT_STALE_MS = 15_000;
+const SIM_PROXY_EXECUTOR_HEARTBEAT_STALE_MS = 60_000;
 const SIM_PROXY_DISPATCH_ACK_TIMEOUT_MS = 3_000;
-const SIM_PROXY_EXECUTOR_SESSION_WAIT_TIMEOUT_MS = 1_500;
+const SIM_PROXY_EXECUTOR_SESSION_WAIT_TIMEOUT_MS = 8_000;
 const SIM_PROXY_EXECUTOR_SESSION_WAIT_STEP_MS = 120;
+const SIM_PROXY_EXECUTOR_ENSURE_INTERVAL_MS = 20_000;
 
 function isNativeHostControlResponse(value: unknown): value is NativeHostControlResponse {
   if (typeof value !== 'object' || value === null) {
@@ -290,6 +291,8 @@ async function syncSimProxyConfigFromNativeState(state: NativeHostState): Promis
     enabled: true,
     baseUrl: state.baseUrl.trim() || DEFAULT_SIM_PROXY_BASE_URL,
     token: state.token.trim() || current.token,
+    autoMaintainExecutors: current.autoMaintainExecutors,
+    pinExecutorTabs: current.pinExecutorTabs,
   } satisfies SimProxyBridgeConfig;
 
   await setSimProxyBridgeConfig(next);
@@ -332,12 +335,14 @@ const simProxyPendingRequests = new Map<string, SimProxyPendingRequest>();
 let simProxyPollLoopRunning = false;
 
 const simProxyExecutorSessions = new Map<number, SimProxyExecutorSession>();
-const simProxyExecutorBinding: Record<SimProxyOriginKey, number | null> = {
+const simProxyMaintainedExecutorTabs: Record<SimProxyOriginKey, number | null> = {
   sim: null,
   sem: null,
 };
 const simProxyDispatchAckWaiters = new Map<string, SimProxyDispatchAckWaiter>();
 const simProxyRequestExecutors = new Map<string, number>();
+let simProxyEnsureExecutorsTimerId: ReturnType<typeof setTimeout> | null = null;
+const simProxyExecutorBinding = simProxyMaintainedExecutorTabs;
 
 const simProxyFailoverState = {
   count: 0,
@@ -439,6 +444,10 @@ function toSimProxyOriginKey(origin: string): SimProxyOriginKey | null {
   }
 
   return null;
+}
+
+function toSimProxyOriginByKey(key: SimProxyOriginKey): string {
+  return key === 'sim' ? SIM_PROXY_SIM_ORIGIN : SIM_PROXY_SEM_ORIGIN;
 }
 
 function isSimProxySessionStale(session: SimProxyExecutorSession, now = Date.now()): boolean {
@@ -687,6 +696,143 @@ function toTabOrigin(url?: string): string | null {
   }
 }
 
+async function getSimProxyTabById(tabId: number): Promise<chrome.tabs.Tab | null> {
+  try {
+    return await chrome.tabs.get(tabId);
+  } catch {
+    return null;
+  }
+}
+
+
+async function isTabOnOrigin(tabId: number, origin: string): Promise<boolean> {
+  const tab = await getSimProxyTabById(tabId);
+  if (!tab) {
+    return false;
+  }
+
+  const tabOrigin = toTabOrigin(tab.url);
+  return tabOrigin === origin;
+}
+
+async function ensureTabPinned(tabId: number, pinned: boolean): Promise<void> {
+  try {
+    await chrome.tabs.update(tabId, {
+      pinned,
+      autoDiscardable: false,
+    });
+  } catch {
+    try {
+      await chrome.tabs.update(tabId, { pinned });
+    } catch {
+      // noop
+    }
+  }
+}
+
+async function createMaintainedExecutorTab(origin: string, config: SimProxyBridgeConfig): Promise<number | null> {
+  try {
+    const created = await chrome.tabs.create({
+      url: `${origin}/`,
+      active: false,
+      pinned: config.pinExecutorTabs,
+    });
+
+    if (typeof created.id !== 'number') {
+      return null;
+    }
+
+    await ensureTabPinned(created.id, config.pinExecutorTabs);
+    return created.id;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureExecutorForOrigin(key: SimProxyOriginKey, config: SimProxyBridgeConfig): Promise<void> {
+  const origin = toSimProxyOriginByKey(key);
+  let targetTabId = simProxyMaintainedExecutorTabs[key];
+
+  if (typeof targetTabId === 'number') {
+    const stillOnOrigin = await isTabOnOrigin(targetTabId, origin);
+    if (!stillOnOrigin) {
+      simProxyMaintainedExecutorTabs[key] = null;
+      targetTabId = null;
+    }
+  }
+
+  if (targetTabId == null) {
+    const existingTabs = await chrome.tabs.query({ url: [`${origin}/*`] });
+    const existing = existingTabs.find((tab) => typeof tab.id === 'number');
+    if (existing?.id != null) {
+      targetTabId = existing.id;
+    }
+  }
+
+  if (targetTabId == null) {
+    targetTabId = await createMaintainedExecutorTab(origin, config);
+  }
+
+  if (targetTabId == null) {
+    return;
+  }
+
+  simProxyMaintainedExecutorTabs[key] = targetTabId;
+  bindSimProxyExecutor(origin, targetTabId);
+
+  await ensureTabPinned(targetTabId, config.pinExecutorTabs);
+
+  try {
+    await ensureSimProxyBridgeScriptsInjected(targetTabId);
+  } catch {
+    return;
+  }
+
+  const session = await waitForSimProxySession(targetTabId, SIM_PROXY_EXECUTOR_SESSION_WAIT_TIMEOUT_MS);
+  if (session && session.origin === origin) {
+    bindSimProxyExecutor(origin, targetTabId);
+  }
+}
+
+async function ensureSimProxyExecutorsOnce(config?: SimProxyBridgeConfig): Promise<void> {
+  const currentConfig = config ?? (await getSimProxyBridgeConfig());
+  if (!isSimProxyBridgeEnabled(currentConfig) || !currentConfig.autoMaintainExecutors) {
+    return;
+  }
+
+  await ensureExecutorForOrigin('sim', currentConfig);
+  await ensureExecutorForOrigin('sem', currentConfig);
+}
+
+function scheduleSimProxyExecutorMaintenance(delayMs = 0): void {
+  if (simProxyEnsureExecutorsTimerId != null) {
+    return;
+  }
+
+  simProxyEnsureExecutorsTimerId = setTimeout(() => {
+    simProxyEnsureExecutorsTimerId = null;
+
+    void (async () => {
+      const config = await getSimProxyBridgeConfig();
+      if (!isSimProxyBridgeEnabled(config) || !config.autoMaintainExecutors) {
+        return;
+      }
+
+      await ensureSimProxyExecutorsOnce(config);
+      scheduleSimProxyExecutorMaintenance(SIM_PROXY_EXECUTOR_ENSURE_INTERVAL_MS);
+    })();
+  }, delayMs);
+}
+
+function stopSimProxyExecutorMaintenance(): void {
+  if (simProxyEnsureExecutorsTimerId == null) {
+    return;
+  }
+
+  clearTimeout(simProxyEnsureExecutorsTimerId);
+  simProxyEnsureExecutorsTimerId = null;
+}
+
 function upsertExecutorSession(session: SimProxyExecutorSession): void {
   simProxyExecutorSessions.set(session.tabId, session);
   bindSimProxyExecutor(session.origin, session.tabId);
@@ -701,6 +847,12 @@ function removeExecutorSession(tabId: number, reason?: string): void {
   simProxyExecutorSessions.delete(tabId);
   unbindSimProxyExecutor(tabId);
 
+  for (const key of Object.keys(simProxyMaintainedExecutorTabs) as SimProxyOriginKey[]) {
+    if (simProxyMaintainedExecutorTabs[key] === tabId) {
+      simProxyMaintainedExecutorTabs[key] = null;
+    }
+  }
+
   for (const [requestId, ownerTabId] of simProxyRequestExecutors.entries()) {
     if (ownerTabId !== tabId) {
       continue;
@@ -713,6 +865,8 @@ function removeExecutorSession(tabId: number, reason?: string): void {
   if (reason) {
     recordSimProxyFailover(reason);
   }
+
+  scheduleSimProxyExecutorMaintenance();
 }
 
 function onSimProxyPortMessage(tabId: number, rawMessage: unknown): void {
@@ -1346,7 +1500,24 @@ async function executeSimProxyJob(job: SimProxyBridgeJob): Promise<SimProxyResul
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const session = await resolveExecutorSession(job.origin, triedTabIds.size > 0 ? triedTabIds : undefined);
     if (!session) {
-      break;
+      const fallbackTabId = await resolveSimProxyTabId(job.origin);
+      if (fallbackTabId == null || triedTabIds.has(fallbackTabId)) {
+        break;
+      }
+
+      triedTabIds.add(fallbackTabId);
+      simProxyRequestExecutors.set(job.id, fallbackTabId);
+
+      try {
+        await sendSimProxyExecuteWithRecovery(fallbackTabId, payload);
+        return waitResult;
+      } catch (error) {
+        lastError = error;
+        if (attempt === 0) {
+          recordSimProxyFailover(`tab ${fallbackTabId} sendMessage 回退失败：${toErrorMessage(error, '未知错误')}`);
+        }
+        continue;
+      }
     }
 
     triedTabIds.add(session.tabId);
@@ -1599,6 +1770,7 @@ async function runSimProxyPollLoop(): Promise<void> {
 function ensureSimProxyPolling(): void {
   void syncSimProxyPollingAlarm();
   void runSimProxyPollLoop();
+  scheduleSimProxyExecutorMaintenance();
 }
 
 async function syncActionState(enabled: boolean) {
@@ -2142,6 +2314,14 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
   if ('simProxyBridgeConfig' in changes) {
     ensureSimProxyPolling();
+    void (async () => {
+      const config = await getSimProxyBridgeConfig();
+      if (config.autoMaintainExecutors) {
+        scheduleSimProxyExecutorMaintenance();
+      } else {
+        stopSimProxyExecutorMaintenance();
+      }
+    })();
   }
 });
 
@@ -2234,6 +2414,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
 
           await syncSimProxyConfigFromNativeState(checkedState);
           ensureSimProxyPolling();
+          scheduleSimProxyExecutorMaintenance();
 
           const response: NativeHostBackgroundResponse = {
             ok: true,
