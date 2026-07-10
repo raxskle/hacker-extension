@@ -17,6 +17,7 @@ const PRE_REQUEST_DELAY_MAX_MS = 1_000;
 const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 
 const proxyWindow = window as Window & { __HACKER_EXTENSION_SIM_PROXY_PATCHED__?: boolean };
+const isTopFrame = window.top === window.self;
 const pendingExecutions: SimProxyExecutePayload[] = [];
 let isQueueDraining = false;
 
@@ -227,7 +228,7 @@ function enqueueExecution(payload: SimProxyExecutePayload): void {
   void drainExecutionQueue();
 }
 
-if (!proxyWindow.__HACKER_EXTENSION_SIM_PROXY_PATCHED__) {
+if (isTopFrame && !proxyWindow.__HACKER_EXTENSION_SIM_PROXY_PATCHED__) {
   proxyWindow.__HACKER_EXTENSION_SIM_PROXY_PATCHED__ = true;
 
   window.addEventListener('message', (event: MessageEvent) => {

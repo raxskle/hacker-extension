@@ -383,6 +383,106 @@ test('sem supports gmitm alias from query', async () => {
   });
 });
 
+
+
+test('extension result ack is idempotent for duplicate id', async () => {
+  await withServer(async ({ baseUrl, token }) => {
+    const apiPromise = postJson(`${baseUrl}/sim/api/KeywordGenerator/google/suggest`, token, {
+      keyword: 'image to text',
+      country: '999',
+    });
+
+    const poll = await postJson(
+      `${baseUrl}/v1/extension/poll`,
+      token,
+      { maxWaitMs: 3_000 },
+      { 'x-extension-id': TEST_EXTENSION_ID },
+    );
+
+    assert.equal(poll.response.status, 200);
+    const job = poll.json;
+    const finalUrl = `${job.origin}${job.path}`;
+
+    const firstAck = await postJson(
+      `${baseUrl}/v1/extension/result`,
+      token,
+      {
+        id: job.id,
+        ok: true,
+        payload: {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+          body: '{"ok":true}',
+          truncated: false,
+          finalUrl,
+        },
+      },
+      { 'x-extension-id': TEST_EXTENSION_ID },
+    );
+
+    assert.equal(firstAck.response.status, 200);
+    assert.equal(firstAck.json.ok, true);
+    assert.equal(firstAck.json.accepted, true);
+
+    const duplicateAck = await postJson(
+      `${baseUrl}/v1/extension/result`,
+      token,
+      {
+        id: job.id,
+        ok: true,
+        payload: {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+          body: '{"ok":true}',
+          truncated: false,
+          finalUrl,
+        },
+      },
+      { 'x-extension-id': TEST_EXTENSION_ID },
+    );
+
+    assert.equal(duplicateAck.response.status, 200);
+    assert.equal(duplicateAck.json.ok, true);
+    assert.equal(duplicateAck.json.accepted, true);
+    assert.equal(duplicateAck.json.duplicate, true);
+
+    const api = await apiPromise;
+    assert.equal(api.response.status, 200);
+    assert.equal(api.json.ok, true);
+  });
+});
+
+
+
+
+
+test('extension result ack returns not-found for unknown id', async () => {
+  await withServer(async ({ baseUrl, token }) => {
+    const ack = await postJson(
+      `${baseUrl}/v1/extension/result`,
+      token,
+      {
+        id: 'unknown-request-id',
+        ok: true,
+        payload: {
+          status: 200,
+          headers: {},
+          body: '',
+          truncated: false,
+          finalUrl: 'https://sim.3ue.co/',
+        },
+      },
+      { 'x-extension-id': TEST_EXTENSION_ID },
+    );
+
+    assert.equal(ack.response.status, 404);
+    assert.equal(ack.json.ok, false);
+    assert.equal(ack.json.accepted, false);
+    assert.equal(ack.json.retryable, false);
+    assert.equal(ack.json.reason, 'not-found');
+  });
+});
+
 test('invalid page value returns INVALID_PARAMS', async () => {
   await withServer(async ({ baseUrl, token }) => {
     const { response, json } = await postJson(`${baseUrl}/sim/api/KeywordGenerator/google/suggest`, token, {

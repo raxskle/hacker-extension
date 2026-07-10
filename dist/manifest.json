@@ -11,7 +11,9 @@
     "storage",
     "unlimitedStorage",
     "downloads",
-    "nativeMessaging"
+    "nativeMessaging",
+    "alarms",
+    "scripting"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -50,7 +52,7 @@
     },
     {
       "js": [
-        "assets/simProxyBridge.ts-loader-Db8igNLq.js"
+        "assets/simProxyBridge.ts-loader-CZHJAPFX.js"
       ],
       "matches": [
         "https://sim.3ue.co/*",
@@ -61,7 +63,7 @@
     },
     {
       "js": [
-        "assets/simProxyInjected.ts-loader-ISAyHyWC.js"
+        "assets/simProxyInjected.ts-loader-f67SMnIu.js"
       ],
       "matches": [
         "https://sim.3ue.co/*",
@@ -73,7 +75,7 @@
     },
     {
       "js": [
-        "assets/main.tsx-loader-C1Hd-u33.js"
+        "assets/main.tsx-loader-DIVJZRGq.js"
       ],
       "matches": [
         "<all_urls>"
@@ -94,8 +96,8 @@
         "assets/recorderBridge.ts-D95VkiDC.js",
         "assets/recorderInjected.ts-BI9MNVNM.js",
         "assets/jsx-runtime-D0XvMYhy.js",
-        "assets/storage-DOpb9BAS.js",
-        "assets/main.tsx-BIvmwc5_.js"
+        "assets/storage-qIa5b_4r.js",
+        "assets/main.tsx-C8YbblP9.js"
       ],
       "use_dynamic_url": false
     },
@@ -105,9 +107,9 @@
         "https://sim.3ue.co/*"
       ],
       "resources": [
-        "assets/simProxy-DkHPA1id.js",
-        "assets/simProxyBridge.ts-b7KV0S7R.js",
-        "assets/simProxyInjected.ts-BcV829-N.js"
+        "assets/simProxy-lBJ_FvvO.js",
+        "assets/simProxyBridge.ts-Dg9_u3w4.js",
+        "assets/simProxyInjected.ts-vZMl9k1a.js"
       ],
       "use_dynamic_url": false
     }

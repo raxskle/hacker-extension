@@ -5,7 +5,7 @@
   (async () => {
     const { onExecute } = await import(
       /* @vite-ignore */
-      "./simProxyInjected.ts-BcV829-N.js"
+      chrome.runtime.getURL("assets/main.tsx-C8YbblP9.js")
     );
     onExecute?.({ perf: { injectTime, loadTime: performance.now() - injectTime } });
   })().catch(console.error);

@@ -1,6 +1,7 @@
 export const SIM_PROXY_EXECUTE = 'sim-proxy/execute';
 export const SIM_PROXY_RESULT = 'sim-proxy/result';
 export const SIM_PROXY_STATUS = 'sim-proxy/status';
+export const SIM_PROXY_WAKEUP = 'sim-proxy/wakeup';
 
 export const SIM_PROXY_BRIDGE_SOURCE = 'hacker-extension-sim-proxy';
 export const SIM_PROXY_WINDOW_EXECUTE = 'sim/execute';
@@ -73,6 +74,12 @@ export type SimProxyWindowExecuteMessage = {
   payload: SimProxyExecutePayload;
 };
 
+export type SimProxyResultAck = {
+  accepted: boolean;
+  retryable?: boolean;
+  reason?: string;
+};
+
 export type SimProxyWindowResultMessage = {
   source: typeof SIM_PROXY_BRIDGE_SOURCE;
   type: typeof SIM_PROXY_WINDOW_RESULT;
@@ -93,7 +100,15 @@ type SimProxyStatusRequest = {
   type: typeof SIM_PROXY_STATUS;
 };
 
-export type SimProxyBackgroundRequest = SimProxyExecuteRequest | SimProxyResultRequest | SimProxyStatusRequest;
+type SimProxyWakeupRequest = {
+  type: typeof SIM_PROXY_WAKEUP;
+};
+
+export type SimProxyBackgroundRequest =
+  | SimProxyExecuteRequest
+  | SimProxyResultRequest
+  | SimProxyStatusRequest
+  | SimProxyWakeupRequest;
 
 type SimProxySuccess<T> = {
   ok: true;
@@ -105,7 +120,7 @@ type SimProxyFailure = {
   error: string;
 };
 
-export type SimProxyBackgroundResponse<T = { accepted: boolean }> = SimProxySuccess<T> | SimProxyFailure;
+export type SimProxyBackgroundResponse<T = SimProxyResultAck> = SimProxySuccess<T> | SimProxyFailure;
 
 function isSimProxyFailure(response: unknown): response is SimProxyFailure {
   return typeof response === 'object' && response !== null && 'ok' in response && (response as { ok: unknown }).ok === false;
@@ -125,8 +140,8 @@ async function requestSimProxyBackground<T>(request: SimProxyBackgroundRequest):
   return response.data;
 }
 
-export async function requestSimProxyResult(payload: SimProxyResultPayload): Promise<{ accepted: boolean }> {
-  return requestSimProxyBackground<{ accepted: boolean }>({
+export async function requestSimProxyResult(payload: SimProxyResultPayload): Promise<SimProxyResultAck> {
+  return requestSimProxyBackground<SimProxyResultAck>({
     type: SIM_PROXY_RESULT,
     payload,
   });
@@ -134,6 +149,10 @@ export async function requestSimProxyResult(payload: SimProxyResultPayload): Pro
 
 export async function requestSimProxyStatus(): Promise<SimProxyBridgeStatusPayload> {
   return requestSimProxyBackground<SimProxyBridgeStatusPayload>({ type: SIM_PROXY_STATUS });
+}
+
+export async function requestSimProxyWakeup(): Promise<SimProxyBridgeStatusPayload> {
+  return requestSimProxyBackground<SimProxyBridgeStatusPayload>({ type: SIM_PROXY_WAKEUP });
 }
 
 export function createSimProxyFailure(error: unknown): SimProxyBackgroundResponse {

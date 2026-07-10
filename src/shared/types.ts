@@ -128,6 +128,16 @@ export type SimProxyBridgeConfig = {
   token: string;
 };
 
+export type SimProxyInFlightRecord = {
+  id: string;
+  origin: string;
+  timeoutMs: number;
+  createdAt: number;
+  expiresAt: number;
+};
+
+export type SimProxyInFlightStore = Record<string, SimProxyInFlightRecord>;
+
 export const DEFAULT_CAPTURE_RUNTIME_STATE: CaptureRuntimeState = {
   isRecording: false,
   rule: '',
@@ -176,6 +186,7 @@ export const STORAGE_KEYS = {
   captureRuntimeState: 'captureRuntimeState',
   captureRecords: 'captureRecords',
   simProxyBridgeConfig: 'simProxyBridgeConfig',
+  simProxyInFlight: 'simProxyInFlight',
 } as const;
 
 export const DEFAULT_PRESET_ITEMS: PresetItem[] = [

@@ -12,6 +12,8 @@ const MAX_SIM_TIMEOUT_MS = 180_000;
 const MAX_WAIT_TIMEOUT_MS = 300_000;
 const MAX_POLL_WAIT_MS = 25_000;
 const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
+const RESULT_ACK_TTL_MS = 5 * 60_000;
+
 const SIM_TARGET_ORIGIN = 'https://sim.3ue.co';
 const DEFAULT_TARGET_ORIGIN = SIM_TARGET_ORIGIN;
 const ALLOWED_TARGET_ORIGINS = new Set([SIM_TARGET_ORIGIN, 'https://sem.3ue.co']);
@@ -134,6 +136,28 @@ const pendingResults = new Map();
 
 /** @type {Array<{send: (job: any) => void, timeoutId: NodeJS.Timeout}>} */
 const pollWaiters = [];
+
+/** @type {Map<string, number>} */
+const completedResults = new Map();
+
+function pruneCompletedResults(now = Date.now()) {
+  for (const [requestId, expiresAt] of completedResults.entries()) {
+    if (expiresAt <= now) {
+      completedResults.delete(requestId);
+    }
+  }
+}
+
+function markCompletedResult(requestId, now = Date.now()) {
+  pruneCompletedResults(now);
+  completedResults.set(requestId, now + RESULT_ACK_TTL_MS);
+}
+
+function hasCompletedResult(requestId, now = Date.now()) {
+  pruneCompletedResults(now);
+  const expiresAt = completedResults.get(requestId);
+  return typeof expiresAt === 'number' && expiresAt > now;
+}
 
 function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
@@ -994,9 +1018,14 @@ async function handleExtensionResult(req, res) {
     return;
   }
 
+  if (hasCompletedResult(id)) {
+    sendJson(res, 200, { ok: true, accepted: true, duplicate: true });
+    return;
+  }
+
   const pending = pendingResults.get(id);
   if (!pending) {
-    sendJson(res, 404, { ok: false, error: 'not-found' });
+    sendJson(res, 404, { ok: false, accepted: false, retryable: false, reason: 'not-found', error: 'not-found' });
     return;
   }
 
@@ -1009,6 +1038,7 @@ async function handleExtensionResult(req, res) {
     pending.resolve({ ok: false, error: typeof body?.error === 'string' ? body.error : 'unknown-error' });
   }
 
+  markCompletedResult(id);
   sendJson(res, 200, { ok: true, accepted: true });
 }
 

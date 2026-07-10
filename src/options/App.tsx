@@ -19,6 +19,7 @@ import {
 } from '../shared/types';
 import {
   requestSimProxyStatus,
+  requestSimProxyWakeup,
   type SimProxyBridgeStatusPayload,
   type SimProxyStatusLevel,
 } from '../shared/simProxy';
@@ -419,6 +420,20 @@ export default function App() {
     }
   }
 
+  async function forceWakeupPolling() {
+    try {
+      setSimProxyBusy(true);
+      const payload = await requestSimProxyWakeup();
+      setSimProxyStatus(payload);
+      setErrorMessage('');
+      showNotice(`已手动唤起轮询：${getLevelLabel(payload.level)}`);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '手动唤起轮询失败');
+    } finally {
+      setSimProxyBusy(false);
+    }
+  }
+
   async function save() {
     try {
       const parsedHiddenDomains = parseHiddenDomainsInput(hiddenDomainsInput);
@@ -565,9 +580,14 @@ export default function App() {
             <span className={`bridge-status-chip ${statusLevelClassName}`}>
               链路状态：{simProxyStatus ? getLevelLabel(simProxyStatus.level) : '未检查'}
             </span>
-            <button type="button" disabled={simProxyBusy} onClick={() => void refreshSimProxyStatus({ showNotice: true })}>
-              {simProxyBusy ? '检查中...' : '检查链路'}
-            </button>
+            <div className="native-control-row">
+              <button type="button" disabled={simProxyBusy} onClick={() => void refreshSimProxyStatus({ showNotice: true })}>
+                {simProxyBusy ? '检查中...' : '检查链路'}
+              </button>
+              <button type="button" className="primary" disabled={simProxyBusy} onClick={() => void forceWakeupPolling()}>
+                强制唤起轮询
+              </button>
+            </div>
           </div>
 
           {simProxyStatus ? (

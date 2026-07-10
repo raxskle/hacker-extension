@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { requestNativeHostStart, requestNativeHostStatus, requestNativeHostStop, type NativeHostState } from '../shared/nativeHost';
-import { requestSimProxyStatus, type SimProxyBridgeStatusPayload, type SimProxyStatusLevel } from '../shared/simProxy';
+import {
+  requestSimProxyStatus,
+  requestSimProxyWakeup,
+  type SimProxyBridgeStatusPayload,
+  type SimProxyStatusLevel,
+} from '../shared/simProxy';
 import { getPanelEnabled, setPanelEnabled } from '../shared/storage';
 
 function formatNativeHostStatus(state: NativeHostState | null): string {
@@ -120,6 +125,20 @@ export default function App() {
     }
   }
 
+  async function forceWakeupPolling() {
+    try {
+      setSimProxyBusy(true);
+      const payload = await requestSimProxyWakeup();
+      setSimProxyStatus(payload);
+      setErrorMessage('');
+      showNotice(`已手动唤起轮询：${getStatusLabel(payload.level)}`);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '手动唤起轮询失败');
+    } finally {
+      setSimProxyBusy(false);
+    }
+  }
+
   async function startNativeService() {
     try {
       setNativeBusy(true);
@@ -201,9 +220,21 @@ export default function App() {
               ? `队列 pending=${simProxyStatus.health.pendingJobs ?? '-'} / waiting=${simProxyStatus.health.waitingResults ?? '-'}`
               : '-'}
           </div>
+          {simProxyStatus?.poll.lastPollError ? (
+            <div className="native-status subtle">Poll 错误：{simProxyStatus.poll.lastPollError}</div>
+          ) : null}
+          {simProxyStatus?.dispatch.lastDispatchError ? (
+            <div className="native-status subtle">Dispatch 错误：{simProxyStatus.dispatch.lastDispatchError}</div>
+          ) : null}
+          {simProxyStatus?.result.lastResultPostError ? (
+            <div className="native-status subtle">Result 错误：{simProxyStatus.result.lastResultPostError}</div>
+          ) : null}
           <div className="action-row">
             <button type="button" disabled={simProxyBusy} onClick={() => void refreshSimProxyStatus({ showNotice: true })}>
               {simProxyBusy ? '检查中...' : '检查链路'}
+            </button>
+            <button type="button" className="primary" disabled={simProxyBusy} onClick={() => void forceWakeupPolling()}>
+              强制唤起轮询
             </button>
           </div>
         </section>

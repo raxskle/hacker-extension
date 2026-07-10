@@ -19,6 +19,8 @@ import {
   type PresetGroupStore,
   type PresetItem,
   type SimProxyBridgeConfig,
+  type SimProxyInFlightRecord,
+  type SimProxyInFlightStore,
 } from './types';
 import { extractHostname } from './notion';
 
@@ -670,4 +672,97 @@ export async function setSimProxyBridgeConfig(config: SimProxyBridgeConfig): Pro
   await chrome.storage.local.set({
     [STORAGE_KEYS.simProxyBridgeConfig]: normalizeSimProxyBridgeConfig(config),
   });
+}
+
+function normalizeSimProxyInFlightStore(input: unknown, now = Date.now()): SimProxyInFlightStore {
+  if (typeof input !== 'object' || input === null) {
+    return {};
+  }
+
+  const entries = Object.entries(input as Record<string, unknown>)
+    .map(([id, value]) => {
+      if (typeof value !== 'object' || value === null) {
+        return null;
+      }
+
+      const raw = value as Partial<SimProxyInFlightRecord>;
+      const timeoutMs =
+        typeof raw.timeoutMs === 'number' && Number.isFinite(raw.timeoutMs)
+          ? Math.max(1_000, Math.round(raw.timeoutMs))
+          : 45_000;
+      const createdAt =
+        typeof raw.createdAt === 'number' && Number.isFinite(raw.createdAt) ? Math.round(raw.createdAt) : now;
+      const expiresAt =
+        typeof raw.expiresAt === 'number' && Number.isFinite(raw.expiresAt)
+          ? Math.round(raw.expiresAt)
+          : now + timeoutMs + 20_000;
+      const normalizedId = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : id.trim();
+      const origin = typeof raw.origin === 'string' ? raw.origin.trim() : '';
+
+      if (!normalizedId || !origin || expiresAt <= now) {
+        return null;
+      }
+
+      const normalized: SimProxyInFlightRecord = {
+        id: normalizedId,
+        origin,
+        timeoutMs,
+        createdAt,
+        expiresAt,
+      };
+
+      return [normalizedId, normalized] as const;
+    })
+    .filter((entry): entry is readonly [string, SimProxyInFlightRecord] => Boolean(entry));
+
+  return Object.fromEntries(entries);
+}
+
+export async function getSimProxyInFlightStore(): Promise<SimProxyInFlightStore> {
+  const data = await chrome.storage.local.get(STORAGE_KEYS.simProxyInFlight);
+  const raw = data[STORAGE_KEYS.simProxyInFlight];
+  const value = normalizeSimProxyInFlightStore(raw);
+
+  const rawCount = typeof raw === 'object' && raw !== null ? Object.keys(raw as Record<string, unknown>).length : -1;
+  if (rawCount !== Object.keys(value).length) {
+    await chrome.storage.local.set({ [STORAGE_KEYS.simProxyInFlight]: value });
+  }
+
+  return value;
+}
+
+export async function getSimProxyInFlightRecord(requestId: string): Promise<SimProxyInFlightRecord | null> {
+  const normalizedId = requestId.trim();
+  if (!normalizedId) {
+    return null;
+  }
+
+  const store = await getSimProxyInFlightStore();
+  return store[normalizedId] ?? null;
+}
+
+export async function upsertSimProxyInFlightRecord(record: SimProxyInFlightRecord): Promise<void> {
+  const store = await getSimProxyInFlightStore();
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.simProxyInFlight]: {
+      ...store,
+      [record.id]: record,
+    },
+  });
+}
+
+export async function deleteSimProxyInFlightRecord(requestId: string): Promise<void> {
+  const normalizedId = requestId.trim();
+  if (!normalizedId) {
+    return;
+  }
+
+  const store = await getSimProxyInFlightStore();
+  if (!store[normalizedId]) {
+    return;
+  }
+
+  const next = { ...store };
+  delete next[normalizedId];
+  await chrome.storage.local.set({ [STORAGE_KEYS.simProxyInFlight]: next });
 }

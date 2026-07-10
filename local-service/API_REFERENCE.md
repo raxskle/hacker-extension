@@ -1042,7 +1042,16 @@ const globalDifficultyAvg = kdValues.length
 ### 7.3 扩展内部接口（不建议 AI 直接调用）
 
 - `POST /v1/extension/poll`
+  - 由扩展后台长轮询拉取任务。
+  - `204` 表示当前无任务（非错误）。
 - `POST /v1/extension/result`
+  - 由扩展回传页面执行结果。
+  - 返回体新增 ACK 语义：
+    - `200 { ok: true, accepted: true }`：已接收。
+    - `200 { ok: true, accepted: true, duplicate: true }`：重复回传（同 requestId）被幂等接受。
+    - `404 { ok: false, accepted: false, retryable: false, reason: "not-found" }`：未知 requestId，不应重试。
+
+> 建议扩展侧仅在 `accepted !== true` 且 `retryable === true` 时重试。
 
 ---
 

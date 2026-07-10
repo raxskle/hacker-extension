@@ -9,7 +9,7 @@ export default defineManifest({
     default_title: 'Hacker Extension',
     default_popup: 'popup.html',
   },
-  permissions: ['storage', 'unlimitedStorage', 'downloads', 'nativeMessaging'],
+  permissions: ['storage', 'unlimitedStorage', 'downloads', 'nativeMessaging', 'alarms', 'scripting'],
   host_permissions: [
     '<all_urls>',
     'https://api.notion.com/*',
