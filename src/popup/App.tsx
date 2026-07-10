@@ -217,9 +217,18 @@ export default function App() {
           <div className="native-status">{simProxyStatus?.summary || '点击检查链路获取当前状态'}</div>
           <div className="native-status subtle">
             {simProxyStatus
-              ? `队列 pending=${simProxyStatus.health.pendingJobs ?? '-'} / waiting=${simProxyStatus.health.waitingResults ?? '-'}`
+              ? `执行页 SIM=${simProxyStatus.dispatch.executor.sim.tabId ?? '-'}(${simProxyStatus.dispatch.executor.sim.stale ? 'stale' : 'ok'}) / SEM=${simProxyStatus.dispatch.executor.sem.tabId ?? '-'}(${simProxyStatus.dispatch.executor.sem.stale ? 'stale' : 'ok'})`
               : '-'}
           </div>
+          <div className="native-status subtle">
+            {simProxyStatus
+              ? `Failover=${simProxyStatus.dispatch.executor.failoverCount} / last=${simProxyStatus.dispatch.executor.lastFailoverAt ? new Date(simProxyStatus.dispatch.executor.lastFailoverAt).toLocaleTimeString() : '-'}`
+              : '-'}
+          </div>
+          {simProxyStatus?.dispatch.executor.lastFailoverReason ? (
+            <div className="native-status subtle">Failover 原因：{simProxyStatus.dispatch.executor.lastFailoverReason}</div>
+          ) : null}
+
           {simProxyStatus?.poll.lastPollError ? (
             <div className="native-status subtle">Poll 错误：{simProxyStatus.poll.lastPollError}</div>
           ) : null}

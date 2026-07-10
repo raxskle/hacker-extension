@@ -6,6 +6,12 @@ export const SIM_PROXY_WAKEUP = 'sim-proxy/wakeup';
 export const SIM_PROXY_BRIDGE_SOURCE = 'hacker-extension-sim-proxy';
 export const SIM_PROXY_WINDOW_EXECUTE = 'sim/execute';
 export const SIM_PROXY_WINDOW_RESULT = 'sim/result';
+export const SIM_PROXY_PORT_NAME = 'sim-proxy/port';
+export const SIM_PROXY_PORT_HELLO = 'sim-proxy/port/hello';
+export const SIM_PROXY_PORT_HEARTBEAT = 'sim-proxy/port/heartbeat';
+export const SIM_PROXY_PORT_EXECUTE = 'sim-proxy/port/execute';
+export const SIM_PROXY_PORT_DISPATCH_ACK = 'sim-proxy/port/dispatch-ack';
+export const SIM_PROXY_PORT_RESULT = 'sim-proxy/port/result';
 
 export type SimProxyExecutePayload = {
   id: string;
@@ -29,6 +35,12 @@ export type SimProxyResultPayload = {
 
 export type SimProxyHealthStatus = 'up' | 'down' | 'unknown';
 export type SimProxyStatusLevel = 'ok' | 'warn' | 'error';
+
+export type SimProxyExecutorHealth = {
+  tabId: number | null;
+  lastHeartbeatAt: number | null;
+  stale: boolean;
+};
 
 export type SimProxyBridgeStatusPayload = {
   checkedAt: number;
@@ -60,6 +72,13 @@ export type SimProxyBridgeStatusPayload = {
     lastOrigin: string;
     lastDispatchAt: number | null;
     lastDispatchError: string;
+    executor: {
+      sim: SimProxyExecutorHealth;
+      sem: SimProxyExecutorHealth;
+      failoverCount: number;
+      lastFailoverAt: number | null;
+      lastFailoverReason: string;
+    };
   };
   result: {
     lastResultReceivedAt: number | null;
@@ -67,6 +86,44 @@ export type SimProxyBridgeStatusPayload = {
     lastResultPostError: string;
   };
 };
+
+export type SimProxyPortHelloMessage = {
+  type: typeof SIM_PROXY_PORT_HELLO;
+  origin: string;
+  pageUrl: string;
+};
+
+export type SimProxyPortHeartbeatMessage = {
+  type: typeof SIM_PROXY_PORT_HEARTBEAT;
+  origin: string;
+  pageUrl: string;
+  sentAt: number;
+};
+
+export type SimProxyPortExecuteMessage = {
+  type: typeof SIM_PROXY_PORT_EXECUTE;
+  payload: SimProxyExecutePayload;
+};
+
+export type SimProxyPortDispatchAckMessage = {
+  type: typeof SIM_PROXY_PORT_DISPATCH_ACK;
+  id: string;
+  accepted: boolean;
+  error?: string;
+};
+
+export type SimProxyPortResultMessage = {
+  type: typeof SIM_PROXY_PORT_RESULT;
+  payload: SimProxyResultPayload;
+};
+
+export type SimProxyPortInboundMessage =
+  | SimProxyPortHelloMessage
+  | SimProxyPortHeartbeatMessage
+  | SimProxyPortDispatchAckMessage
+  | SimProxyPortResultMessage;
+
+export type SimProxyPortOutboundMessage = SimProxyPortExecuteMessage;
 
 export type SimProxyWindowExecuteMessage = {
   source: typeof SIM_PROXY_BRIDGE_SOURCE;

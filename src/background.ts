@@ -64,11 +64,21 @@ import {
   SIM_PROXY_RESULT,
   SIM_PROXY_STATUS,
   SIM_PROXY_WAKEUP,
+  SIM_PROXY_PORT_DISPATCH_ACK,
+  SIM_PROXY_PORT_EXECUTE,
+  SIM_PROXY_PORT_HEARTBEAT,
+  SIM_PROXY_PORT_HELLO,
+  SIM_PROXY_PORT_NAME,
+  SIM_PROXY_PORT_RESULT,
   createSimProxyFailure,
   type SimProxyBackgroundRequest,
   type SimProxyBackgroundResponse,
   type SimProxyBridgeStatusPayload,
   type SimProxyExecutePayload,
+  type SimProxyPortDispatchAckMessage,
+  type SimProxyPortInboundMessage,
+  type SimProxyPortOutboundMessage,
+  type SimProxyPortResultMessage,
   type SimProxyResultAck,
   type SimProxyResultPayload,
   type SimProxyStatusLevel,
@@ -96,8 +106,10 @@ let captureMatcher: CaptureMatcher | null = null;
 const MAX_CAPTURE_RECORDS = 400;
 const MAX_CAPTURE_TOTAL_CHARS = 4_000_000;
 
-const SIM_PROXY_DEFAULT_ALLOWED_ORIGIN = 'https://sim.3ue.co';
-const SIM_PROXY_ALLOWED_ORIGINS = new Set(['https://sim.3ue.co', 'https://sem.3ue.co']);
+const SIM_PROXY_SIM_ORIGIN = 'https://sim.3ue.co';
+const SIM_PROXY_SEM_ORIGIN = 'https://sem.3ue.co';
+const SIM_PROXY_DEFAULT_ALLOWED_ORIGIN = SIM_PROXY_SIM_ORIGIN;
+const SIM_PROXY_ALLOWED_ORIGINS = new Set([SIM_PROXY_SIM_ORIGIN, SIM_PROXY_SEM_ORIGIN]);
 const SIM_PROXY_POLL_MAX_WAIT_MS = 25_000;
 const SIM_PROXY_POLL_REQUEST_TIMEOUT_MS = 30_000;
 const SIM_PROXY_RESULT_TIMEOUT_BUFFER_MS = 20_000;
@@ -114,6 +126,10 @@ const SIM_PROXY_POLL_ALARM_PERIOD_MINUTES = 0.5;
 const SIM_PROXY_SEND_MESSAGE_RETRY_LIMIT = 2;
 const SIM_PROXY_RESULT_POST_RETRY_LIMIT = 3;
 const SIM_PROXY_RESULT_POST_RETRY_BASE_DELAY_MS = 400;
+const SIM_PROXY_EXECUTOR_HEARTBEAT_STALE_MS = 15_000;
+const SIM_PROXY_DISPATCH_ACK_TIMEOUT_MS = 3_000;
+const SIM_PROXY_EXECUTOR_SESSION_WAIT_TIMEOUT_MS = 1_500;
+const SIM_PROXY_EXECUTOR_SESSION_WAIT_STEP_MS = 120;
 
 function isNativeHostControlResponse(value: unknown): value is NativeHostControlResponse {
   if (typeof value !== 'object' || value === null) {
@@ -295,8 +311,39 @@ type SimProxyPendingRequest = {
   timeoutId: ReturnType<typeof setTimeout>;
 };
 
+type SimProxyOriginKey = 'sim' | 'sem';
+
+type SimProxyExecutorSession = {
+  tabId: number;
+  origin: string;
+  pageUrl: string;
+  port: chrome.runtime.Port;
+  connectedAt: number;
+  lastHeartbeatAt: number;
+};
+
+type SimProxyDispatchAckWaiter = {
+  resolve: (payload: SimProxyPortDispatchAckMessage) => void;
+  reject: (error: Error) => void;
+  timeoutId: ReturnType<typeof setTimeout>;
+};
+
 const simProxyPendingRequests = new Map<string, SimProxyPendingRequest>();
 let simProxyPollLoopRunning = false;
+
+const simProxyExecutorSessions = new Map<number, SimProxyExecutorSession>();
+const simProxyExecutorBinding: Record<SimProxyOriginKey, number | null> = {
+  sim: null,
+  sem: null,
+};
+const simProxyDispatchAckWaiters = new Map<string, SimProxyDispatchAckWaiter>();
+const simProxyRequestExecutors = new Map<string, number>();
+
+const simProxyFailoverState = {
+  count: 0,
+  lastAt: null as number | null,
+  lastReason: '',
+};
 
 type SimProxyHealthSnapshot = {
   ok: boolean;
@@ -307,6 +354,7 @@ type SimProxyHealthSnapshot = {
   lastCheckedAt: number | null;
   lastError: string;
 };
+
 
 type SimProxyRuntimeState = {
   poll: {
@@ -377,6 +425,417 @@ function updateSimProxyHealth(partial: Partial<SimProxyHealthSnapshot>): void {
   };
 }
 
+function isKnownSimProxyOrigin(origin: string): origin is typeof SIM_PROXY_SIM_ORIGIN | typeof SIM_PROXY_SEM_ORIGIN {
+  return SIM_PROXY_ALLOWED_ORIGINS.has(origin);
+}
+
+function toSimProxyOriginKey(origin: string): SimProxyOriginKey | null {
+  if (origin === SIM_PROXY_SIM_ORIGIN) {
+    return 'sim';
+  }
+
+  if (origin === SIM_PROXY_SEM_ORIGIN) {
+    return 'sem';
+  }
+
+  return null;
+}
+
+function isSimProxySessionStale(session: SimProxyExecutorSession, now = Date.now()): boolean {
+  return now - session.lastHeartbeatAt > SIM_PROXY_EXECUTOR_HEARTBEAT_STALE_MS;
+}
+
+function getHealthySessionCandidates(origin: string, excludedTabIds?: Set<number>): SimProxyExecutorSession[] {
+  const now = Date.now();
+  return [...simProxyExecutorSessions.values()]
+    .filter((session) => session.origin === origin)
+    .filter((session) => !excludedTabIds?.has(session.tabId))
+    .filter((session) => !isSimProxySessionStale(session, now))
+    .sort((a, b) => b.lastHeartbeatAt - a.lastHeartbeatAt);
+}
+
+function bindSimProxyExecutor(origin: string, tabId: number): void {
+  const key = toSimProxyOriginKey(origin);
+  if (!key) {
+    return;
+  }
+
+  simProxyExecutorBinding[key] = tabId;
+}
+
+function unbindSimProxyExecutor(tabId: number): void {
+  for (const key of Object.keys(simProxyExecutorBinding) as SimProxyOriginKey[]) {
+    if (simProxyExecutorBinding[key] === tabId) {
+      simProxyExecutorBinding[key] = null;
+    }
+  }
+}
+
+function recordSimProxyFailover(reason: string): void {
+  simProxyFailoverState.count += 1;
+  simProxyFailoverState.lastAt = Date.now();
+  simProxyFailoverState.lastReason = reason;
+}
+
+function getExecutorHealthByKey(key: SimProxyOriginKey): {
+  tabId: number | null;
+  lastHeartbeatAt: number | null;
+  stale: boolean;
+} {
+  const tabId = simProxyExecutorBinding[key];
+  if (tabId == null) {
+    return {
+      tabId: null,
+      lastHeartbeatAt: null,
+      stale: false,
+    };
+  }
+
+  const session = simProxyExecutorSessions.get(tabId);
+  if (!session) {
+    return {
+      tabId,
+      lastHeartbeatAt: null,
+      stale: true,
+    };
+  }
+
+  return {
+    tabId: session.tabId,
+    lastHeartbeatAt: session.lastHeartbeatAt,
+    stale: isSimProxySessionStale(session),
+  };
+}
+
+function clearDispatchAckWaiter(requestId: string): void {
+  const waiter = simProxyDispatchAckWaiters.get(requestId);
+  if (!waiter) {
+    return;
+  }
+
+  clearTimeout(waiter.timeoutId);
+  simProxyDispatchAckWaiters.delete(requestId);
+}
+
+function rejectDispatchAckWaiter(requestId: string, message: string): void {
+  const waiter = simProxyDispatchAckWaiters.get(requestId);
+  if (!waiter) {
+    return;
+  }
+
+  clearTimeout(waiter.timeoutId);
+  simProxyDispatchAckWaiters.delete(requestId);
+  waiter.reject(new Error(message));
+}
+
+function resolveDispatchAckWaiter(payload: SimProxyPortDispatchAckMessage): void {
+  const waiter = simProxyDispatchAckWaiters.get(payload.id);
+  if (!waiter) {
+    return;
+  }
+
+  clearTimeout(waiter.timeoutId);
+  simProxyDispatchAckWaiters.delete(payload.id);
+  waiter.resolve(payload);
+}
+
+function waitForDispatchAck(requestId: string, timeoutMs: number): Promise<SimProxyPortDispatchAckMessage> {
+  return new Promise((resolve, reject) => {
+    clearDispatchAckWaiter(requestId);
+
+    const timeoutId = setTimeout(() => {
+      simProxyDispatchAckWaiters.delete(requestId);
+      reject(new Error('等待执行页 ACK 超时'));
+    }, timeoutMs);
+
+    simProxyDispatchAckWaiters.set(requestId, {
+      resolve,
+      reject,
+      timeoutId,
+    });
+  });
+}
+
+function isSimProxyPortDispatchAckMessage(value: unknown): value is SimProxyPortDispatchAckMessage {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const payload = value as Partial<SimProxyPortDispatchAckMessage>;
+  return (
+    payload.type === SIM_PROXY_PORT_DISPATCH_ACK &&
+    typeof payload.id === 'string' &&
+    typeof payload.accepted === 'boolean' &&
+    (payload.error == null || typeof payload.error === 'string')
+  );
+}
+
+function isSimProxyPortResultMessage(value: unknown): value is SimProxyPortResultMessage {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const payload = value as Partial<SimProxyPortResultMessage>;
+  return payload.type === SIM_PROXY_PORT_RESULT && isSimProxyResultPayload(payload.payload);
+}
+
+function isSimProxyPortHelloMessage(value: unknown): value is { type: typeof SIM_PROXY_PORT_HELLO; origin: string; pageUrl: string } {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const payload = value as { type?: unknown; origin?: unknown; pageUrl?: unknown };
+  return payload.type === SIM_PROXY_PORT_HELLO && typeof payload.origin === 'string' && typeof payload.pageUrl === 'string';
+}
+
+function isSimProxyPortHeartbeatMessage(
+  value: unknown,
+): value is { type: typeof SIM_PROXY_PORT_HEARTBEAT; origin: string; pageUrl: string; sentAt: number } {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const payload = value as { type?: unknown; origin?: unknown; pageUrl?: unknown; sentAt?: unknown };
+  return (
+    payload.type === SIM_PROXY_PORT_HEARTBEAT &&
+    typeof payload.origin === 'string' &&
+    typeof payload.pageUrl === 'string' &&
+    typeof payload.sentAt === 'number'
+  );
+}
+
+async function waitForSimProxySession(tabId: number, timeoutMs: number): Promise<SimProxyExecutorSession | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const session = simProxyExecutorSessions.get(tabId);
+    if (session && !isSimProxySessionStale(session)) {
+      return session;
+    }
+
+    await sleep(SIM_PROXY_EXECUTOR_SESSION_WAIT_STEP_MS);
+  }
+
+  return null;
+}
+
+async function discoverSimProxySession(origin: string, excludedTabIds?: Set<number>): Promise<SimProxyExecutorSession | null> {
+  const urlPattern = [`${origin}/*`];
+  const tabs = await chrome.tabs.query({ url: urlPattern });
+  const candidates = tabs
+    .map((tab) => tab.id)
+    .filter((tabId): tabId is number => typeof tabId === 'number')
+    .filter((tabId) => !excludedTabIds?.has(tabId));
+
+  for (const tabId of candidates) {
+    try {
+      await ensureSimProxyBridgeScriptsInjected(tabId);
+    } catch {
+      continue;
+    }
+
+    const session = await waitForSimProxySession(tabId, SIM_PROXY_EXECUTOR_SESSION_WAIT_TIMEOUT_MS);
+    if (session && session.origin === origin) {
+      return session;
+    }
+  }
+
+  return null;
+}
+
+async function resolveExecutorSession(origin: string, excludedTabIds?: Set<number>): Promise<SimProxyExecutorSession | null> {
+  const originKey = toSimProxyOriginKey(origin);
+  if (!originKey) {
+    return null;
+  }
+
+  const boundTabId = simProxyExecutorBinding[originKey];
+  if (boundTabId != null && !excludedTabIds?.has(boundTabId)) {
+    const boundSession = simProxyExecutorSessions.get(boundTabId);
+    if (boundSession && !isSimProxySessionStale(boundSession)) {
+      return boundSession;
+    }
+
+    simProxyExecutorBinding[originKey] = null;
+  }
+
+  const healthyCandidates = getHealthySessionCandidates(origin, excludedTabIds);
+  const next = healthyCandidates[0];
+  if (next) {
+    bindSimProxyExecutor(origin, next.tabId);
+    return next;
+  }
+
+  const discovered = await discoverSimProxySession(origin, excludedTabIds);
+  if (discovered) {
+    bindSimProxyExecutor(origin, discovered.tabId);
+    return discovered;
+  }
+
+  return null;
+}
+
+function toTabOrigin(url?: string): string | null {
+  if (!url) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(url);
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+function upsertExecutorSession(session: SimProxyExecutorSession): void {
+  simProxyExecutorSessions.set(session.tabId, session);
+  bindSimProxyExecutor(session.origin, session.tabId);
+}
+
+function removeExecutorSession(tabId: number, reason?: string): void {
+  const existing = simProxyExecutorSessions.get(tabId);
+  if (!existing) {
+    return;
+  }
+
+  simProxyExecutorSessions.delete(tabId);
+  unbindSimProxyExecutor(tabId);
+
+  for (const [requestId, ownerTabId] of simProxyRequestExecutors.entries()) {
+    if (ownerTabId !== tabId) {
+      continue;
+    }
+
+    rejectDispatchAckWaiter(requestId, '执行页连接中断，派发 ACK 失败');
+    simProxyRequestExecutors.delete(requestId);
+  }
+
+  if (reason) {
+    recordSimProxyFailover(reason);
+  }
+}
+
+function onSimProxyPortMessage(tabId: number, rawMessage: unknown): void {
+  if (isSimProxyPortDispatchAckMessage(rawMessage)) {
+    resolveDispatchAckWaiter(rawMessage);
+    return;
+  }
+
+  if (isSimProxyPortResultMessage(rawMessage)) {
+    void handleSimProxyResultPayload(rawMessage.payload);
+    return;
+  }
+
+  if (isSimProxyPortHeartbeatMessage(rawMessage)) {
+    const origin = rawMessage.origin.trim();
+    if (!isKnownSimProxyOrigin(origin)) {
+      return;
+    }
+
+    const current = simProxyExecutorSessions.get(tabId);
+    if (!current) {
+      return;
+    }
+
+    upsertExecutorSession({
+      ...current,
+      origin,
+      pageUrl: rawMessage.pageUrl,
+      lastHeartbeatAt: Date.now(),
+    });
+    return;
+  }
+
+  if (isSimProxyPortHelloMessage(rawMessage)) {
+    const origin = rawMessage.origin.trim();
+    if (!isKnownSimProxyOrigin(origin)) {
+      return;
+    }
+
+    const current = simProxyExecutorSessions.get(tabId);
+    if (!current) {
+      return;
+    }
+
+    upsertExecutorSession({
+      ...current,
+      origin,
+      pageUrl: rawMessage.pageUrl,
+      lastHeartbeatAt: Date.now(),
+    });
+  }
+}
+
+
+function registerSimProxyPort(port: chrome.runtime.Port): void {
+  if (port.name !== SIM_PROXY_PORT_NAME) {
+    return;
+  }
+
+  const tabId = port.sender?.tab?.id;
+  if (typeof tabId !== 'number') {
+    try {
+      port.disconnect();
+    } catch {
+      // noop
+    }
+    return;
+  }
+
+  const pageUrl = port.sender?.tab?.url || '';
+  const origin = toTabOrigin(pageUrl);
+  if (!origin || !isKnownSimProxyOrigin(origin)) {
+    try {
+      port.disconnect();
+    } catch {
+      // noop
+    }
+    return;
+  }
+
+  const existing = simProxyExecutorSessions.get(tabId);
+  if (existing && existing.port !== port) {
+    removeExecutorSession(tabId, `tab ${tabId} 已建立新连接`);
+  }
+
+  upsertExecutorSession({
+    tabId,
+    origin,
+    pageUrl,
+    port,
+    connectedAt: Date.now(),
+    lastHeartbeatAt: Date.now(),
+  });
+
+  port.onMessage.addListener((rawMessage: unknown) => {
+    onSimProxyPortMessage(tabId, rawMessage as SimProxyPortInboundMessage);
+  });
+
+  port.onDisconnect.addListener(() => {
+    removeExecutorSession(tabId, `tab ${tabId} 连接断开`);
+  });
+}
+
+
+async function sendExecuteViaSendMessageFallback(tabId: number, payload: SimProxyExecutePayload): Promise<void> {
+  for (let attempt = 0; attempt < SIM_PROXY_SEND_MESSAGE_RETRY_LIMIT; attempt += 1) {
+    try {
+      await chrome.tabs.sendMessage(tabId, {
+        type: SIM_PROXY_EXECUTE,
+        payload,
+      } satisfies SimProxyBackgroundRequest);
+      return;
+    } catch (error) {
+      const canRecover = isMissingReceiverError(error) && attempt < SIM_PROXY_SEND_MESSAGE_RETRY_LIMIT - 1;
+      if (!canRecover) {
+        throw error;
+      }
+
+      await ensureSimProxyBridgeScriptsInjected(tabId);
+    }
+  }
+}
+
 function getSimProxyStatusSummary(level: SimProxyStatusLevel, state: SimProxyBridgeStatusPayload): string {
   if (level === 'error') {
     if (!state.config.hasToken) {
@@ -412,8 +871,16 @@ function getSimProxyStatusSummary(level: SimProxyStatusLevel, state: SimProxyBri
       return '检测到任务堆积，扩展可能未持续轮询。';
     }
 
+    if (state.dispatch.executor.sim.stale || state.dispatch.executor.sem.stale) {
+      return '执行页心跳已过期，正在尝试切换到可用页面。';
+    }
+
     if (state.dispatch.lastDispatchError) {
       return `页面派发失败：${state.dispatch.lastDispatchError}`;
+    }
+
+    if (state.dispatch.executor.lastFailoverReason) {
+      return `已自动切换执行页：${state.dispatch.executor.lastFailoverReason}`;
     }
 
     return '代理链路有告警，建议执行一次链路检查。';
@@ -429,6 +896,8 @@ function getSimProxyStatusLevel(state: Omit<SimProxyBridgeStatusPayload, 'level'
 
   if (
     !!state.dispatch.lastDispatchError ||
+    state.dispatch.executor.sim.stale ||
+    state.dispatch.executor.sem.stale ||
     (state.health.waitingResults != null && state.health.waitingResults > 0) ||
     (state.health.pendingJobs != null &&
       state.health.pendingJobs > 0 &&
@@ -527,6 +996,13 @@ async function buildSimProxyBridgeStatusPayload(): Promise<SimProxyBridgeStatusP
       lastOrigin: simProxyRuntimeState.dispatch.lastOrigin,
       lastDispatchAt: simProxyRuntimeState.dispatch.lastDispatchAt,
       lastDispatchError: simProxyRuntimeState.dispatch.lastDispatchError,
+      executor: {
+        sim: getExecutorHealthByKey('sim'),
+        sem: getExecutorHealthByKey('sem'),
+        failoverCount: simProxyFailoverState.count,
+        lastFailoverAt: simProxyFailoverState.lastAt,
+        lastFailoverReason: simProxyFailoverState.lastReason,
+      },
     },
     result: {
       lastResultReceivedAt: simProxyRuntimeState.result.lastResultReceivedAt,
@@ -660,22 +1136,7 @@ async function ensureSimProxyBridgeScriptsInjected(tabId: number): Promise<void>
 }
 
 async function sendSimProxyExecuteWithRecovery(tabId: number, payload: SimProxyExecutePayload): Promise<void> {
-  for (let attempt = 0; attempt < SIM_PROXY_SEND_MESSAGE_RETRY_LIMIT; attempt += 1) {
-    try {
-      await chrome.tabs.sendMessage(tabId, {
-        type: SIM_PROXY_EXECUTE,
-        payload,
-      } satisfies SimProxyBackgroundRequest);
-      return;
-    } catch (error) {
-      const canRecover = isMissingReceiverError(error) && attempt < SIM_PROXY_SEND_MESSAGE_RETRY_LIMIT - 1;
-      if (!canRecover) {
-        throw error;
-      }
-
-      await ensureSimProxyBridgeScriptsInjected(tabId);
-    }
-  }
+  await sendExecuteViaSendMessageFallback(tabId, payload);
 }
 
 async function syncSimProxyPollingAlarm(): Promise<void> {
@@ -803,6 +1264,8 @@ function createPendingResultPromise(requestId: string, timeoutMs: number): Promi
   return new Promise<SimProxyResultPayload>((resolve, reject) => {
     const timeoutId = setTimeout(() => {
       simProxyPendingRequests.delete(requestId);
+      simProxyRequestExecutors.delete(requestId);
+      clearDispatchAckWaiter(requestId);
       reject(new Error('等待页面响应超时'));
     }, getSimProxyResultTimeoutMs(timeoutMs));
 
@@ -818,6 +1281,8 @@ function resolvePendingSimProxyResult(payload: SimProxyResultPayload): boolean {
 
   clearTimeout(pending.timeoutId);
   simProxyPendingRequests.delete(payload.id);
+  simProxyRequestExecutors.delete(payload.id);
+  clearDispatchAckWaiter(payload.id);
   pending.resolve(payload);
   return true;
 }
@@ -830,7 +1295,30 @@ function rejectPendingSimProxyResult(requestId: string, message: string): void {
 
   clearTimeout(pending.timeoutId);
   simProxyPendingRequests.delete(requestId);
+  simProxyRequestExecutors.delete(requestId);
+  clearDispatchAckWaiter(requestId);
   pending.reject(new Error(message));
+}
+
+async function dispatchSimProxyJobWithPort(session: SimProxyExecutorSession, payload: SimProxyExecutePayload): Promise<void> {
+  const message: SimProxyPortOutboundMessage = {
+    type: SIM_PROXY_PORT_EXECUTE,
+    payload,
+  };
+
+  const ackPromise = waitForDispatchAck(payload.id, SIM_PROXY_DISPATCH_ACK_TIMEOUT_MS);
+
+  try {
+    session.port.postMessage(message);
+  } catch (error) {
+    clearDispatchAckWaiter(payload.id);
+    throw error;
+  }
+
+  const ack = await ackPromise;
+  if (!ack.accepted) {
+    throw new Error(ack.error || '执行页未接受请求');
+  }
 }
 
 async function executeSimProxyJob(job: SimProxyBridgeJob): Promise<SimProxyResultPayload> {
@@ -838,13 +1326,6 @@ async function executeSimProxyJob(job: SimProxyBridgeJob): Promise<SimProxyResul
   simProxyRuntimeState.dispatch.lastOrigin = job.origin;
   simProxyRuntimeState.dispatch.lastDispatchAt = Date.now();
   simProxyRuntimeState.dispatch.lastDispatchError = '';
-
-  const tabId = await resolveSimProxyTabId(job.origin);
-  if (tabId == null) {
-    const message = `未找到已打开的 ${job.origin} 页面，请先打开并登录。`;
-    simProxyRuntimeState.dispatch.lastDispatchError = message;
-    throw new Error(message);
-  }
 
   const payload: SimProxyExecutePayload = {
     id: job.id,
@@ -859,19 +1340,77 @@ async function executeSimProxyJob(job: SimProxyBridgeJob): Promise<SimProxyResul
   const waitResult = createPendingResultPromise(job.id, job.timeoutMs);
   await upsertSimProxyInFlightRecord(toSimProxyInFlightRecord(job));
 
-  try {
-    await sendSimProxyExecuteWithRecovery(tabId, payload);
-  } catch (error) {
-    const message = '发送执行请求到目标站点页面失败，自动重连未成功，请确认页面已打开后重试。';
-    simProxyRuntimeState.dispatch.lastDispatchError = message;
-    rejectPendingSimProxyResult(job.id, message);
-    await deleteSimProxyInFlightRecord(job.id);
-    throw error;
+  const triedTabIds = new Set<number>();
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const session = await resolveExecutorSession(job.origin, triedTabIds.size > 0 ? triedTabIds : undefined);
+    if (!session) {
+      break;
+    }
+
+    triedTabIds.add(session.tabId);
+    simProxyRequestExecutors.set(job.id, session.tabId);
+
+    try {
+      await dispatchSimProxyJobWithPort(session, payload);
+      return waitResult;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) {
+        recordSimProxyFailover(`tab ${session.tabId} ACK 失败：${toErrorMessage(error, '未知错误')}`);
+      }
+    }
   }
 
-  return waitResult;
+  const message =
+    lastError != null
+      ? `发送执行请求到目标站点页面失败：${toErrorMessage(lastError, '执行页不可用')}，请确认页面已打开后重试。`
+      : `未找到可用的 ${job.origin} 执行页面，请先打开并登录。`;
+  simProxyRuntimeState.dispatch.lastDispatchError = message;
+  rejectPendingSimProxyResult(job.id, message);
+  await deleteSimProxyInFlightRecord(job.id);
+  throw new Error(message);
 }
 
+async function handleSimProxyResultPayload(payload: SimProxyResultPayload): Promise<SimProxyResultAck> {
+  simProxyRuntimeState.result.lastResultReceivedAt = Date.now();
+
+  const resolved = resolvePendingSimProxyResult(payload);
+  if (resolved) {
+    return { accepted: true };
+  }
+
+  const inFlight = await getSimProxyInFlightRecord(payload.id);
+  if (!inFlight) {
+    return {
+      accepted: false,
+      retryable: false,
+      reason: '请求已过期或不存在',
+    };
+  }
+
+  const config = await getSimProxyBridgeConfig();
+  if (!isSimProxyBridgeEnabled(config)) {
+    return {
+      accepted: false,
+      retryable: true,
+      reason: '代理配置尚未就绪',
+    };
+  }
+
+  try {
+    await postSimProxyBridgeResult(config, payload.id, { ok: true, payload });
+    await deleteSimProxyInFlightRecord(payload.id);
+    return { accepted: true };
+  } catch (error) {
+    return {
+      accepted: false,
+      retryable: true,
+      reason: toErrorMessage(error, '结果回传失败'),
+    };
+  }
+}
 async function postSimProxyBridgeResult(
   config: SimProxyBridgeConfig,
   jobId: string,
@@ -1563,6 +2102,32 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   ensureSimProxyPolling();
 });
 
+
+chrome.runtime.onConnect.addListener((port) => {
+  registerSimProxyPort(port);
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  removeExecutorSession(tabId, `tab ${tabId} 已关闭`);
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  const session = simProxyExecutorSessions.get(tabId);
+  if (!session) {
+    return;
+  }
+
+  const nextUrl = typeof changeInfo.url === 'string' ? changeInfo.url : tab.url;
+  if (typeof nextUrl !== 'string' || nextUrl.length === 0) {
+    return;
+  }
+
+  const nextOrigin = toTabOrigin(nextUrl);
+  if (!nextOrigin || !isKnownSimProxyOrigin(nextOrigin)) {
+    removeExecutorSession(tabId, `tab ${tabId} 已离开目标站点`);
+  }
+});
+
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== 'local') {
     return;
@@ -1733,66 +2298,13 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
             throw new Error('本地接口代理响应数据无效');
           }
 
-          simProxyRuntimeState.result.lastResultReceivedAt = Date.now();
-          const resolved = resolvePendingSimProxyResult(payload);
-          if (resolved) {
-            const response: SimProxyBackgroundResponse<SimProxyResultAck> = {
-              ok: true,
-              data: { accepted: true },
-            };
-            sendResponse(response);
-            return;
-          }
-
-          const inFlight = await getSimProxyInFlightRecord(payload.id);
-          if (!inFlight) {
-            const response: SimProxyBackgroundResponse<SimProxyResultAck> = {
-              ok: true,
-              data: {
-                accepted: false,
-                retryable: false,
-                reason: '请求已过期或不存在',
-              },
-            };
-            sendResponse(response);
-            return;
-          }
-
-          const config = await getSimProxyBridgeConfig();
-          if (!isSimProxyBridgeEnabled(config)) {
-            const response: SimProxyBackgroundResponse<SimProxyResultAck> = {
-              ok: true,
-              data: {
-                accepted: false,
-                retryable: true,
-                reason: '代理配置尚未就绪',
-              },
-            };
-            sendResponse(response);
-            return;
-          }
-
-          try {
-            await postSimProxyBridgeResult(config, payload.id, { ok: true, payload });
-            await deleteSimProxyInFlightRecord(payload.id);
-            const response: SimProxyBackgroundResponse<SimProxyResultAck> = {
-              ok: true,
-              data: { accepted: true },
-            };
-            sendResponse(response);
-            return;
-          } catch (error) {
-            const response: SimProxyBackgroundResponse<SimProxyResultAck> = {
-              ok: true,
-              data: {
-                accepted: false,
-                retryable: true,
-                reason: toErrorMessage(error, '结果回传失败'),
-              },
-            };
-            sendResponse(response);
-            return;
-          }
+          const ack = await handleSimProxyResultPayload(payload);
+          const response: SimProxyBackgroundResponse<SimProxyResultAck> = {
+            ok: true,
+            data: ack,
+          };
+          sendResponse(response);
+          return;
         }
 
         sendResponse(createSimProxyFailure('本地接口代理消息类型无效'));

@@ -608,6 +608,21 @@ export default function App() {
                 `pendingResult=${simProxyStatus.dispatch.pendingResultCount} / origin=${simProxyStatus.dispatch.lastOrigin || '-'}`,
               )}
               {renderStatusRow(
+                '执行页 SIM',
+                `tab=${simProxyStatus.dispatch.executor.sim.tabId ?? '-'} / heartbeat=${formatStatusTime(simProxyStatus.dispatch.executor.sim.lastHeartbeatAt)} / stale=${simProxyStatus.dispatch.executor.sim.stale ? 'yes' : 'no'}`,
+              )}
+              {renderStatusRow(
+                '执行页 SEM',
+                `tab=${simProxyStatus.dispatch.executor.sem.tabId ?? '-'} / heartbeat=${formatStatusTime(simProxyStatus.dispatch.executor.sem.lastHeartbeatAt)} / stale=${simProxyStatus.dispatch.executor.sem.stale ? 'yes' : 'no'}`,
+              )}
+              {renderStatusRow(
+                'Failover',
+                `count=${simProxyStatus.dispatch.executor.failoverCount} / last=${formatStatusTime(simProxyStatus.dispatch.executor.lastFailoverAt)}`,
+              )}
+              {simProxyStatus.dispatch.executor.lastFailoverReason
+                ? renderStatusRow('Failover 原因', simProxyStatus.dispatch.executor.lastFailoverReason)
+                : null}
+              {renderStatusRow(
                 'Result',
                 `received=${formatStatusTime(simProxyStatus.result.lastResultReceivedAt)} / posted=${formatStatusTime(simProxyStatus.result.lastResultPostedAt)}`,
               )}

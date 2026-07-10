@@ -52,7 +52,7 @@
     },
     {
       "js": [
-        "assets/simProxyBridge.ts-loader-CZHJAPFX.js"
+        "assets/simProxyBridge.ts-loader-eZZa33LD.js"
       ],
       "matches": [
         "https://sim.3ue.co/*",
@@ -63,7 +63,7 @@
     },
     {
       "js": [
-        "assets/simProxyInjected.ts-loader-f67SMnIu.js"
+        "assets/simProxyInjected.ts-loader-DNq_2tNK.js"
       ],
       "matches": [
         "https://sim.3ue.co/*",
@@ -107,9 +107,9 @@
         "https://sim.3ue.co/*"
       ],
       "resources": [
-        "assets/simProxy-lBJ_FvvO.js",
-        "assets/simProxyBridge.ts-Dg9_u3w4.js",
-        "assets/simProxyInjected.ts-vZMl9k1a.js"
+        "assets/simProxy-D4sL0i6_.js",
+        "assets/simProxyBridge.ts-hSTz5xQf.js",
+        "assets/simProxyInjected.ts-DLoRFkX8.js"
       ],
       "use_dynamic_url": false
     }
